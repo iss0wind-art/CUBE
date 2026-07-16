@@ -74,6 +74,27 @@ body {
   transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Voxel modeling blocks on the floor */
+.voxel-anchor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+
+.voxel-face {
+  position: absolute;
+  left: -35px;
+  top: -35px;
+  width: 70px;
+  height: 70px;
+  border: 1px solid;
+  pointer-events: none;
+}
+
 /* Mind-map link beams between cells */
 .link-beam-anchor {
   position: absolute;

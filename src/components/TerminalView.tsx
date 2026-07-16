@@ -64,15 +64,21 @@ export default function TerminalView({ sessionId, accentColor, focused = true }:
     const resizeObserver = new ResizeObserver(syncSize);
     resizeObserver.observe(container);
 
-    // Keep wheel events inside the terminal (the room zooms on wheel otherwise).
+    // Keep wheel/touch events inside the terminal (the room camera would
+    // otherwise zoom/rotate while scrolling terminal output).
     const stopWheel = (e: WheelEvent) => e.stopPropagation();
+    const stopTouch = (e: TouchEvent) => e.stopPropagation();
     container.addEventListener('wheel', stopWheel);
+    container.addEventListener('touchstart', stopTouch);
+    container.addEventListener('touchmove', stopTouch);
 
     if (focused) term.focus();
 
     return () => {
       resizeObserver.disconnect();
       container.removeEventListener('wheel', stopWheel);
+      container.removeEventListener('touchstart', stopTouch);
+      container.removeEventListener('touchmove', stopTouch);
       offData.dispose();
       offServer();
       term.dispose();

@@ -231,6 +231,21 @@ export default function App() {
   // Camera lock: freeze rotation/zoom while working, snap to face the screen.
   const [isCameraLocked, setIsCameraLocked] = useState<boolean>(false);
 
+  // Voxel modeling floor: MODEL mode turns floor cells into a simple
+  // block-stacking canvas (click = stack up, right-click = remove).
+  const [modelMode, setModelMode] = useState<boolean>(false);
+  const [voxels, setVoxels] = useState<Record<string, number>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('cube-voxels') || '{}');
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('cube-voxels', JSON.stringify(voxels));
+  }, [voxels]);
+
   // Trigger 3D model descent from ceiling on mount
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -619,6 +634,76 @@ export default function App() {
     };
   }, [cameraMode, isCameraLocked]);
 
+  // Touch controls (mobile/tablet): one finger = look around, pinch = walk
+  useEffect(() => {
+    const container = zoomContainerRef.current;
+    if (!container) return;
+
+    let lastX = 0;
+    let lastY = 0;
+    let lastDist: number | null = null;
+    let looking = false;
+    const interior = cameraMode === 'COORDINATES';
+    const pitchCap = interior ? 55 : 80;
+
+    const touchDist = (e: TouchEvent) =>
+      Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        looking = true;
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+      } else if (e.touches.length === 2) {
+        looking = false;
+        lastDist = touchDist(e);
+      }
+    };
+
+    const onMove = (e: TouchEvent) => {
+      if (isCameraLocked) return;
+      if (e.touches.length === 1 && looking) {
+        e.preventDefault();
+        const dx = e.touches[0].clientX - lastX;
+        const dy = e.touches[0].clientY - lastY;
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+        setPerspectiveRy((prev) => prev + dx * 0.35);
+        setPerspectiveRx((prev) => Math.min(Math.max(prev - dy * 0.35, -pitchCap), pitchCap));
+      } else if (e.touches.length === 2 && lastDist !== null) {
+        e.preventDefault();
+        const dist = touchDist(e);
+        const delta = (dist - lastDist) * 1.2;
+        lastDist = dist;
+        setCurrentZoom((prev) => {
+          const next = prev + delta;
+          return interior
+            ? Math.min(Math.max(next, -600), 250)
+            : Math.min(Math.max(next, 0), 400);
+        });
+      }
+    };
+
+    const onEnd = () => {
+      looking = false;
+      lastDist = null;
+    };
+
+    container.addEventListener('touchstart', onStart, { passive: true });
+    container.addEventListener('touchmove', onMove, { passive: false });
+    container.addEventListener('touchend', onEnd);
+    container.addEventListener('touchcancel', onEnd);
+    return () => {
+      container.removeEventListener('touchstart', onStart);
+      container.removeEventListener('touchmove', onMove);
+      container.removeEventListener('touchend', onEnd);
+      container.removeEventListener('touchcancel', onEnd);
+    };
+  }, [cameraMode, isCameraLocked]);
+
   // Ctrl+Shift+L toggles the camera lock even while typing in a terminal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -811,6 +896,13 @@ export default function App() {
     if (suppressClickRef.current) return; // a link-drag just ended here
 
     const cellKey = `${wall}-${index}`;
+
+    // MODEL mode: the floor is a voxel canvas
+    if (modelMode && wall === 'bottom') {
+      setVoxels((prev) => ({ ...prev, [cellKey]: Math.min((prev[cellKey] || 0) + 1, 5) }));
+      return;
+    }
+
     const existingSession = cellSessions[cellKey];
 
     if (existingSession) {
@@ -867,6 +959,18 @@ export default function App() {
     event.stopPropagation();
 
     const cellKey = `${wall}-${index}`;
+
+    // MODEL mode: right-click removes the top voxel of the stack
+    if (modelMode && wall === 'bottom') {
+      setVoxels((prev) => {
+        const next = (prev[cellKey] || 0) - 1;
+        return next <= 0
+          ? Object.fromEntries(Object.entries(prev).filter(([key]) => key !== cellKey))
+          : { ...prev, [cellKey]: next };
+      });
+      return;
+    }
+
     const sessionId = cellSessions[cellKey];
     if (!sessionId) return;
 
@@ -1384,6 +1488,25 @@ export default function App() {
 
           <button
             onClick={() => {
+              setModelMode((prev) => {
+                triggerNotification(
+                  prev
+                    ? 'MODELING CANVAS CLOSED'
+                    : 'MODELING CANVAS OPEN — 바닥 클릭: 블록 쌓기 / 우클릭: 제거'
+                );
+                return !prev;
+              });
+            }}
+            className={`flex flex-col items-center gap-1.5 group cursor-pointer transition-all ${
+              modelMode ? 'text-emerald-400 font-black scale-105' : 'text-zinc-500 hover:text-white'
+            }`}
+          >
+            <span className="material-symbols-outlined text-xl">deployed_code</span>
+            <span className="font-sans uppercase tracking-[2px] text-[8px] font-bold">MODEL</span>
+          </button>
+
+          <button
+            onClick={() => {
               setCameraMode('SECTION');
               triggerNotification('STRUCTURAL CROSS-SECTION ELEVATION LOCKED');
             }}
@@ -1858,6 +1981,40 @@ export default function App() {
           {cameraMode !== 'PLAN' && cameraMode !== 'SECTION' && renderWallCells('top')}
           {renderWallCells('left')}
           {renderWallCells('right')}
+
+          {/* VOXEL BLOCKS — the floor as a simple modeling canvas */}
+          {Object.entries(voxels).flatMap(([cellKey, count]) => {
+            const center = cellCenter(cellKey);
+            if (!center) return [];
+            const [vx, , vz] = center;
+            return Array.from({ length: Number(count) }, (_, h) => (
+              <div
+                key={`${cellKey}-vox-${h}`}
+                className="voxel-anchor"
+                style={{ transform: `translate3d(${vx}px, ${400 - 35 - h * 70}px, ${vz}px)` }}
+              >
+                {[0, 90, 180, 270].map((angle) => (
+                  <div
+                    key={angle}
+                    className="voxel-face"
+                    style={{
+                      transform: `rotateY(${angle}deg) translateZ(35px)`,
+                      backgroundColor: `${activeDim.starColor}15`,
+                      borderColor: `${activeDim.starColor}55`
+                    }}
+                  />
+                ))}
+                <div
+                  className="voxel-face"
+                  style={{
+                    transform: 'rotateX(90deg) translateZ(35px)',
+                    backgroundColor: `${activeDim.starColor}22`,
+                    borderColor: `${activeDim.starColor}55`
+                  }}
+                />
+              </div>
+            ));
+          })}
 
           {/* MIND-MAP LINK BEAMS — segmented so the interior camera only
               culls the piece behind your head, never the whole line */}
