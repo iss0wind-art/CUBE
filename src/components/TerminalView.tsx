@@ -79,10 +79,11 @@ export default function TerminalView({ sessionId, accentColor }: TerminalViewPro
     <div
       ref={containerRef}
       className="w-full h-full overflow-hidden"
-      onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => {
         // Left click focuses the terminal without side effects; middle-button
-        // must pass through so camera rotation works even over the terminal
+        // must pass through so camera rotation works even over the terminal.
+        // Click events are allowed to bubble so clicking the main screen
+        // aligns the camera (handled by the wall's click handler).
         if (e.button === 0) e.stopPropagation();
       }}
     />

@@ -74,6 +74,19 @@ body {
   transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* STRUCTURE mode: X-ray the room so the world tree is the hero.
+   Walls and terminal fade to ghosts; the tree keeps full presence. */
+.structure-xray .grid-cell {
+  opacity: 0.22;
+  transition: opacity 0.6s ease;
+}
+
+.structure-xray .wall {
+  opacity: 0.12;
+  pointer-events: none;
+  transition: opacity 0.6s ease;
+}
+
 .cell-face {
   position: absolute;
   inset: 0;
@@ -92,8 +105,18 @@ body {
 
 .grid-cell.is-open .cell-face {
   border: 1.5px solid #ffffff;
-  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.5);
   background-color: #ffffff;
+  animation: cell-beacon 2s ease-in-out infinite;
+}
+
+/* Beacon pulse so the cell hosting the main terminal is findable at a glance */
+@keyframes cell-beacon {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(255, 255, 255, 0.85);
+  }
 }
 
 /* 3D Sides of Extruded Grid Cells */
@@ -173,7 +196,7 @@ body {
 }
 
 .wall-front {
-  transform: translateZ(200px) rotateY(180deg);
+  transform: translateZ(500px) rotateY(180deg);
   background-color: rgba(17, 17, 17, 0.15);
   backdrop-filter: blur(1.5px);
   -webkit-backdrop-filter: blur(1.5px);

@@ -493,9 +493,10 @@ export default function App() {
       setCurrentZoom((prev) => {
         const nextZoom = prev + delta;
         // Interior: walk forward/back inside the room (walls cull per-cell,
-        // so movement is safe). Exterior: the original dolly range.
+        // so movement is safe) — the room now extends 300px further back.
+        // Exterior: the original dolly range.
         return interior
-          ? Math.min(Math.max(nextZoom, -250), 250)
+          ? Math.min(Math.max(nextZoom, -600), 250)
           : Math.min(Math.max(nextZoom, 0), 400);
       });
     };
@@ -523,13 +524,28 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [cameraMode]);
 
-  // Re-center the dolly when hopping between interior/exterior cameras
+  // Sensible default framing per camera mode
   useEffect(() => {
     setCurrentZoom(0);
+    if (cameraMode === 'COORDINATES') {
+      setPerspectiveRx(0);
+      setPerspectiveRy(0);
+    } else if (cameraMode === 'ORBIT') {
+      setPerspectiveRx(-15);
+      setPerspectiveRy(15);
+    } else if (cameraMode === 'PLAN') {
+      // Bird's-eye isometric onto the world tree (looking DOWN, not up)
+      setPerspectiveRx(-55);
+      setPerspectiveRy(30);
+    }
   }, [cameraMode]);
 
   // Active dashboard data
   const activeDim = DIMENSIONS[currentDimIndex];
+
+  // Which wall cell hosts the main terminal (CORE = the default, cell-less MAIN)
+  const mainCellKey = Object.keys(cellSessions).find((key) => cellSessions[key] === mainSessionId);
+  const mainCellLocation = mainCellKey ? mainCellKey.toUpperCase() : 'CORE';
 
   // Cell click: focus its terminal, or spawn a new one for that cell.
   const handleCellClick = (wall: string, index: number, event: React.MouseEvent) => {
@@ -555,11 +571,13 @@ export default function App() {
 
   // Snap the camera to face the main screen straight-on.
   const alignToFront = () => {
+    const alreadyAligned =
+      cameraMode === 'COORDINATES' && perspectiveRx === 0 && perspectiveRy === 0 && currentZoom === 0;
     setPerspectiveRx(0);
     setPerspectiveRy(0);
     setCurrentZoom(0);
     if (cameraMode !== 'COORDINATES') setCameraMode('COORDINATES');
-    triggerNotification('VIEWPORT ALIGNED TO MAIN SCREEN');
+    if (!alreadyAligned) triggerNotification('VIEWPORT ALIGNED TO MAIN SCREEN');
   };
 
   // Freeze/unfreeze all camera input; locking also aligns to the screen.
@@ -668,10 +686,9 @@ export default function App() {
         ry = rotationAngle;
         break;
       case 'PLAN':
-        // Top-down perspective map view, static and clean
-        rx = 90;
-        ry = 0;
-        rz = 0;
+        // STRUCTURE: free-rotating 3D X-ray inspection of the world tree
+        rx = perspectiveRx;
+        ry = perspectiveRy;
         break;
       case 'SECTION':
         // Isometric deep cuts view
@@ -685,29 +702,54 @@ export default function App() {
 
   const calculatedZCoordinate = Math.round(12 + currentZoom / 50);
 
-  // Base placement of each grid wall, reproduced per-cell (see index.css:
-  // every cell is its own 3D plane so Chrome's eye-plane culling works
-  // per-cell instead of blanking a whole wall).
-  const WALL_BASE_TRANSFORMS: Record<string, string> = {
-    left: 'rotateY(90deg) translateZ(-400px)',
-    right: 'rotateY(-90deg) translateZ(-400px)',
-    top: 'rotateX(-90deg) translateZ(-400px)',
-    bottom: 'rotateX(90deg) translateZ(-400px)'
+  // Room geometry. The room is 800 wide/tall (x,y: -400..400) and extends
+  // deeper toward the rear portal (z: -600 monitor wall .. +500 portal wall,
+  // 11 depth cells) so the world tree has real space to stand in.
+  const CELL = 100;
+  const HALF_W = 400;
+  const HALF_H = 400;
+  const Z_MIN = -600;
+  const Z_MAX = 500;
+  const DEPTH_CELLS = (Z_MAX - Z_MIN) / CELL; // 11
+
+  const WALL_GRID: Record<string, { cols: number; rows: number }> = {
+    left: { cols: DEPTH_CELLS, rows: 8 },
+    right: { cols: DEPTH_CELLS, rows: 8 },
+    top: { cols: 8, rows: DEPTH_CELLS },
+    bottom: { cols: 8, rows: DEPTH_CELLS }
   };
 
-  // Generate 64 cells per wall
+  // Explicit per-cell placement (each cell is its own 3D plane; inward-facing
+  // normals so backface culling keeps the interior view clean).
+  const cellTransform = (wallName: string, col: number, row: number): string => {
+    switch (wallName) {
+      case 'left': // x = -400; col walks depth, row walks height
+        return `rotateY(90deg) translate3d(${-(Z_MIN + (col + 1) * CELL)}px, ${-HALF_H + row * CELL}px, ${-HALF_W}px)`;
+      case 'right': // x = +400
+        return `rotateY(-90deg) translate3d(${Z_MIN + col * CELL}px, ${-HALF_H + row * CELL}px, ${-HALF_W}px)`;
+      case 'top': // y = -400 (ceiling); row walks depth
+        return `rotateX(-90deg) translate3d(${-HALF_W + col * CELL}px, ${-(Z_MIN + (row + 1) * CELL)}px, ${-HALF_H}px)`;
+      case 'bottom': // y = +400 (floor)
+        return `rotateX(90deg) translate3d(${-HALF_W + col * CELL}px, ${Z_MIN + row * CELL}px, ${-HALF_H}px)`;
+      default:
+        return '';
+    }
+  };
+
+  // Generate all cells for one grid wall
   const renderWallCells = (wallName: string) => {
     const cells = [];
-    const baseTransform = WALL_BASE_TRANSFORMS[wallName];
-    for (let i = 0; i < 64; i++) {
+    const grid = WALL_GRID[wallName];
+    const total = grid.cols * grid.rows;
+    for (let i = 0; i < total; i++) {
       const menuIndex = (i + (wallName.charCodeAt(0) * 3)) % menuData.length;
       const associatedMenu = menuData[menuIndex];
       const cellKey = `${wallName}-${i}`;
       const sessionId = cellSessions[cellKey];
       const isAlive = sessionId ? liveSessions.includes(sessionId) : false;
       const isMain = sessionId !== undefined && sessionId === mainSessionId;
-      const col = i % 8;
-      const row = Math.floor(i / 8);
+      const col = i % grid.cols;
+      const row = Math.floor(i / grid.cols);
 
       cells.push(
         <div
@@ -715,12 +757,10 @@ export default function App() {
           id={`${wallName}-cell-${i}`}
           className={`grid-cell ${isMain ? 'is-open' : ''} ${sessionId ? 'has-session' : ''}`}
           style={{
-            left: `${col * 100 - 400}px`,
-            top: `${row * 100 - 400}px`,
-            // Rotate about the wall's original center so the per-cell
-            // placement is identical to the old whole-wall transform
-            transformOrigin: `${400 - col * 100}px ${400 - row * 100}px`,
-            transform: baseTransform
+            left: 0,
+            top: 0,
+            transformOrigin: '0 0',
+            transform: cellTransform(wallName, col, row)
           }}
           onClick={(e) => handleCellClick(wallName, i, e)}
           onContextMenu={(e) => handleCellKill(wallName, i, e)}
@@ -795,7 +835,7 @@ export default function App() {
           <button
             onClick={() => {
               setCameraMode('PLAN');
-              triggerNotification('VIEW MODE: 2D BLUEPRINT PLAN INITIALIZED');
+              triggerNotification('STRUCTURE X-RAY: WORLD TREE INSPECTION MODE');
             }}
             className={`font-headline tracking-[2px] uppercase text-[11px] font-bold pb-1.5 transition-all border-b-2 ${
               cameraMode === 'PLAN' ? 'border-white text-white' : 'border-transparent text-zinc-500 hover:text-white'
@@ -918,7 +958,7 @@ export default function App() {
           <button
             onClick={() => {
               setCameraMode('PLAN');
-              triggerNotification('TOP DRAFT BLUEPRINT SYSTEM ENGAGED');
+              triggerNotification('WORLD TREE X-RAY: DRAG TO ORBIT THE STRUCTURE');
             }}
             className={`flex flex-col items-center gap-1.5 group cursor-pointer transition-all ${
               cameraMode === 'PLAN' ? 'text-white font-black scale-105' : 'text-zinc-500 hover:text-white'
@@ -1273,7 +1313,7 @@ export default function App() {
         </div>
 
         <div
-          className={`cube-room ${isRisen ? 'is-risen' : ''}`}
+          className={`cube-room ${isRisen ? 'is-risen' : ''} ${cameraMode === 'PLAN' ? 'structure-xray' : ''}`}
           id="cube-room"
           style={{
             transform: getRoomTransform(),
@@ -1283,17 +1323,16 @@ export default function App() {
         >
           {/* GRID WALLS — cells are direct children of the room anchor so each
               renders on its own plane (no whole-wall culling from inside) */}
-          {cameraMode !== 'PLAN' && renderWallCells('bottom')}
+          {renderWallCells('bottom')}
           {cameraMode !== 'PLAN' && cameraMode !== 'SECTION' && renderWallCells('top')}
           {renderWallCells('left')}
           {renderWallCells('right')}
 
-          {/* CENTRAL WIREFRAME BUILDING MASS (future World Tree) —
-              hidden in the interior cockpit view where it blocks the terminal */}
+          {/* CENTRAL WIREFRAME MASS (future World Tree) — stands mid-room;
+              from the default seat it is behind you (turn around to see it) */}
           <div
             className="building-container floating-mass"
             id="building-mass"
-            style={{ display: isInteriorMode ? 'none' : undefined }}
           >
             {/* Level 1: Ceiling Massive Foundation */}
             <div
@@ -1488,24 +1527,33 @@ export default function App() {
               title="클릭하면 정면 정렬"
             >
               <div
-                className="w-[560px] h-[470px] flex flex-col bg-[#0c0c0c]/95 shadow-2xl"
-                style={{ border: `1px solid ${activeDim.starColor}40`, boxShadow: `0 0 40px ${activeDim.starColor}15` }}
+                className="w-[620px] h-[460px] flex flex-col bg-[#0c0c0c]/95 shadow-2xl"
+                style={{
+                  border: `1px solid ${activeDim.starColor}30`,
+                  boxShadow: `0 0 32px ${activeDim.starColor}12`,
+                  // Nudge down so the panel header clears the fixed top HUD bar
+                  transform: 'translateY(15px)'
+                }}
               >
-                <div className="flex justify-between items-center px-4 py-2.5 border-b border-[#333333] shrink-0">
-                  <div className="flex items-center gap-3">
-                    <Terminal className="w-4 h-4" style={{ color: activeDim.starColor }} />
-                    <span className="font-headline font-black tracking-[3px] text-sm text-white uppercase">
+                <div className="flex justify-between items-center px-3 py-1 border-b border-[#222222] shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="w-3 h-3" style={{ color: activeDim.starColor }} />
+                    <span className="font-headline font-black tracking-[2px] text-[11px] text-white uppercase">
                       {mainSessionId}
                     </span>
-                    <span className="font-mono text-[9px] text-zinc-500 tracking-widest uppercase">
-                      POWERSHELL // MAIN_VIEWPORT
+                    <span
+                      className="font-mono text-[8px] tracking-widest uppercase px-1.5 py-0.5 border"
+                      style={{ color: activeDim.starColor, borderColor: `${activeDim.starColor}50` }}
+                      title="이 터미널이 위치한 큐브 셀"
+                    >
+                      @ {mainCellLocation}
                     </span>
                   </div>
-                  <span className="font-mono text-[9px] text-zinc-500 tracking-widest uppercase">
+                  <span className="font-mono text-[8px] text-zinc-500 tracking-widest uppercase">
                     SESSIONS: {liveSessions.length}
                   </span>
                 </div>
-                <div className="flex-1 min-h-0 p-2">
+                <div className="flex-1 min-h-0 p-1">
                   <TerminalView sessionId={mainSessionId} accentColor={activeDim.starColor} />
                 </div>
               </div>
