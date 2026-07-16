@@ -1,0 +1,75 @@
+# CUBE 핸드오프 (2026-07-16)
+
+> 다음 세션/작업자가 이 문서 + `VISION.md`만 읽으면 이어서 작업할 수 있게 쓴다.
+
+## 현재 상태: VISION 로드맵 Phase 0~5 전부 구현 완료
+
+| Phase | 내용 | 상태 |
+|---|---|---|
+| 0 | AI Studio CSS 3D 큐브 셸 | ✅ |
+| 1 | 터미널의 방 (PTY, 셀=터미널, 4분할 도킹, 천장 메뉴 존) | ✅ |
+| 1.5 | 내부 360° 카메라 (셀 단위 평면), 잠금/정렬 | ✅ |
+| 2 | 세계수 (진짜 git 데이터) + 2.5 다중 프로젝트 숲 | ✅ |
+| 3 | 마인드맵 연결 빔 | ✅ |
+| 4 | 포털 (SSH 차원 이동, ~/.ssh/config 프로필) | ✅ |
+| 5 | 복셀 모델링 바닥, 터치 조작, PWA | ✅ |
+| — | 협업 (별=타인의 큐브, 포털 너머 연결선) | ⬜ 미착수 (서버 인프라 필요) |
+| — | XR (VR/AR) | ⬜ 전략만 문서화 (VISION.md "XR 전략") |
+
+## 실행
+
+```bash
+npm install
+npm run dev   # 4개 프로세스 동시 기동
+```
+
+| 포트 | 프로세스 | 파일 | 역할 |
+|---|---|---|---|
+| 3000 | web | vite | 프론트 (strictPort — 점유 시 실패) |
+| 3001 | pty | server/index.ts | 로컬 PowerShell PTY (WS) |
+| 3002 | tree | server/tree.ts | 세계수 git API (+POST /api/projects) |
+| 3003 | portal | server/portal.ts | SSH 게이트웨이 (ssh.exe PTY, /profiles) |
+
+## 절대 주의사항
+
+1. **PTY 서버(:3001)를 함부로 재시작하지 마라.** 사용자가 그 안의 터미널에서
+   실제 작업(Claude Code 등)을 돌리는 중일 수 있다. 세션은 서버 프로세스와
+   함께 죽는다. 그래서 tree/portal을 별도 프로세스로 분리해 놓았다.
+2. **Chrome 시점 평면 컬링**: z=perspective 평면을 가로지르는 요소는
+   서브트리째 사라진다. 그래서 (a) cube-room은 0×0 앵커, (b) 벽은 셀 단위
+   개별 평면, (c) 연결 빔은 세그먼트 분할이다. 새 3D 요소를 추가할 때
+   이 규칙을 지켜라. 실험 스크립트 패턴: Playwright로 순수 HTML 페이지 렌더.
+3. **좀비 Vite**: 포트 3000을 다른 프로세스가 잡고 있으면 옛 코드가 서빙되는
+   대참사가 난다(실제로 겪음). strictPort로 방지했지만, "변경이 반영 안 된다"
+   싶으면 먼저 `netstat -ano | grep 300` 확인.
+4. 검증은 **Playwright 스크린샷**으로 직접 본다 (`chromium.launch()` →
+   goto localhost:3000 → 스크린샷). tsc 통과 ≠ 화면 정상.
+
+## 아키텍처 요점
+
+- React 19 + Vite + Tailwind 4, **CSS 3D transform** (WebGL 아님 — xterm DOM을
+  벽에 그대로 붙이기 위한 의도적 선택. XR 시 three.js 렌더러 추가 전략은 VISION 참조)
+- 방 좌표계: x,y ±400, z -600(모니터벽)..+500(포털벽), 셀 100px
+  - 기하 헬퍼: `cellTransform()`(셀 배치), `cellCenter()`(빔/복셀 좌표)
+- 카메라: COORDS(내부 1인칭, 눈=방 중심, perspective 700, SEAT_ZOOM -120),
+  ORBIT(전지적), PLAN(=STRUCTURE 엑스레이), AXIS, SECTION
+- 세션 상태: `cellSessions`(셀→세션), `docked`(최대 4, 벽 그룹 기반 L/R열),
+  `links`(연결), `voxels`(복셀), `menuCells`(천장 메뉴) — 뒤 셋은 localStorage
+- 세션 ID 규칙: `MAIN`, `LEFT_n`/`RIGHT_n`/`TOP_n`/`BOTTOM_n`(벽 셀),
+  `TREE_*`(세계수, cwd=워크트리), `SSH_*`(포털, :3003 소속 — `clientFor()`)
+
+## 미해결 / 알려진 결함
+
+- 모바일: 동작하나 레이아웃이 데스크톱 기준 (HUD 겹침). 전용 레이아웃 필요.
+- 벽 셀 틈으로 별빛이 약간 샘 (세계관상 방치 중, 원하면 셀 border 조정)
+- STRUCTURE에서 포털 패널이 함께 열려 있을 수 있음 (패널 배타 처리 안 됨)
+- Firebase/Drive 저장은 AI Studio 프로젝트 설정이라 로컬 로그인 실패 가능
+  → 사용자 Firebase 프로젝트로 교체 필요
+- GEMINI_API_KEY 아직 미사용 (AI 기능 미착수)
+
+## 다음 후보
+
+1. 다듬기 라운드 (사용자 실사용 피드백 수집 후)
+2. 협업 챕터: 별=타인의 큐브, 프레즌스 서버, 포털 간 연결선
+3. XR 렌더러 (three.js + xterm 캔버스 텍스처, VISION의 전략 참조)
+4. Gemini 연동 (원래 AI Studio 앱이었으니 AI 어시스턴트 셀?)
