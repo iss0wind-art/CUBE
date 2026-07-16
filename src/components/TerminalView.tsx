@@ -8,12 +8,18 @@ interface TerminalViewProps {
   sessionId: string;
   accentColor: string;
   focused?: boolean;
+  fontSize?: number;
 }
 
 // Renders one xterm.js terminal bound to a PTY session on the CUBE server.
 // Recreated whenever sessionId changes; scrollback is replayed from the
 // client-side buffer so swapping walls keeps history.
-export default function TerminalView({ sessionId, accentColor, focused = true }: TerminalViewProps) {
+export default function TerminalView({
+  sessionId,
+  accentColor,
+  focused = true,
+  fontSize = 14
+}: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -22,7 +28,7 @@ export default function TerminalView({ sessionId, accentColor, focused = true }:
 
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 14,
+      fontSize,
       fontFamily: 'Consolas, "Courier New", monospace',
       theme: {
         background: '#0c0c0c',

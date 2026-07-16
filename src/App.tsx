@@ -1087,6 +1087,11 @@ export default function App() {
   // Default working distance: far enough back that the enlarged monitor
   // fits the viewport, close enough that text stays comfortably readable.
   const SEAT_ZOOM = -120;
+  // Perspective magnification of the monitor wall at the seat position.
+  // xterm hit-tests in CSS pixels and knows nothing about 3D projection, so
+  // the terminal is pre-shrunk by 1/S (and its CSS box enlarged by S) to make
+  // screen pixels and CSS pixels 1:1 — otherwise drags land ~3-4 rows off.
+  const MAIN_SCREEN_SCALE = INTERIOR_PERSPECTIVE / (400 - SEAT_ZOOM); // ≈1.346
   const isInteriorMode = cameraMode === 'COORDINATES' || cameraMode === 'AXIS';
 
   // Determine the rotation styling of the Room container based on Camera Mode and Scroll Zoom
@@ -2274,12 +2279,27 @@ export default function App() {
                                 </button>
                               </div>
                             )}
-                            <div className="flex-1 min-h-0 p-0.5">
-                              <TerminalView
-                                sessionId={pane.id}
-                                accentColor={activeDim.starColor}
-                                focused={focusedSession === pane.id}
-                              />
+                            <div className="flex-1 min-h-0 relative overflow-hidden">
+                              {/* Inverse-scale wrapper: projection(S) x scale(1/S) = 1,
+                                  so xterm's mouse mapping is exact at the seat */}
+                              <div
+                                className="absolute"
+                                style={{
+                                  left: 2,
+                                  top: 2,
+                                  width: `calc((100% - 4px) * ${MAIN_SCREEN_SCALE})`,
+                                  height: `calc((100% - 4px) * ${MAIN_SCREEN_SCALE})`,
+                                  transform: `scale(${1 / MAIN_SCREEN_SCALE})`,
+                                  transformOrigin: '0 0'
+                                }}
+                              >
+                                <TerminalView
+                                  sessionId={pane.id}
+                                  accentColor={activeDim.starColor}
+                                  focused={focusedSession === pane.id}
+                                  fontSize={Math.round(14 * MAIN_SCREEN_SCALE)}
+                                />
+                              </div>
                             </div>
                           </div>
                         ))}
