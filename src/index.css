@@ -28,58 +28,50 @@ body {
   overflow: hidden;
 }
 
+/* Zero-size anchor at the room's center: Chrome culls any element whose own
+   polygon crosses the eye plane (z = perspective) together with its whole
+   subtree. A degenerate 0x0 box has no polygon, so children render on their
+   own planes — this is what makes the 360° interior camera possible. */
 .cube-room {
   position: relative;
-  width: 800px;
-  height: 800px;
+  width: 0;
+  height: 0;
   transform-style: preserve-3d;
   transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Front/back walls: single 800x800 planes centered on the room anchor */
 .wall {
   position: absolute;
+  left: -400px;
+  top: -400px;
   width: 800px;
   height: 800px;
   background: transparent;
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  grid-template-rows: repeat(8, 1fr);
   transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
   backface-visibility: hidden;
   transform-style: preserve-3d;
 }
 
+/* Grid-wall cells: each cell is its OWN 3D plane (placement transform is set
+   inline per cell). Cells behind the eye cull individually, keeping the room
+   visually closed from inside at any yaw. */
 .grid-cell {
-  position: relative;
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  width: 100px;
+  height: 100px;
   transform-style: preserve-3d;
+  backface-visibility: hidden;
   cursor: pointer;
+}
+
+/* Inner wrapper carries dynamic pop/hover depth so it never clobbers the
+   cell's placement transform. */
+.cell-3d {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
   transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.wall-left {
-  transform: rotateY(90deg) translateZ(-400px);
-  border-right: 1px solid #333333;
-}
-
-.wall-right {
-  transform: rotateY(-90deg) translateZ(-400px);
-  border-left: 1px solid #333333;
-}
-
-.wall-top {
-  transform: rotateX(-90deg) translateZ(-400px);
-  border-bottom: 1px solid #333333;
-}
-
-.wall-bottom {
-  transform: rotateX(90deg) translateZ(-400px);
-  border-top: 1px solid #333333;
-}
-
-.wall .grid-cell {
-  border: 0.5px solid rgba(255, 255, 255, 0.05);
 }
 
 .cell-face {
@@ -94,9 +86,8 @@ body {
   transition: background-color 0.3s, border-color 0.3s, transform 0.3s;
 }
 
-.grid-cell.is-open {
-  transform: translateZ(120px) !important;
-  z-index: 100;
+.grid-cell.is-open .cell-3d {
+  transform: translateZ(120px);
 }
 
 .grid-cell.is-open .cell-face {
@@ -270,8 +261,8 @@ body {
 /* 3D Wireframe Building Styles */
 .building-container {
   position: absolute;
-  bottom: 400px; /* Offset to center of room */
-  left: 400px;
+  left: 0; /* Room anchor is already the center */
+  top: 0;
   width: 0;
   height: 0;
   transform-style: preserve-3d;

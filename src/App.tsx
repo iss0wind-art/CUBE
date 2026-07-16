@@ -17,7 +17,9 @@ import {
   Cloud,
   LogOut,
   Trash2,
-  Play
+  Play,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import {
   initAuth,
@@ -142,6 +144,9 @@ export default function App() {
   const [mainSessionId, setMainSessionId] = useState<string>('MAIN');
   const [cellSessions, setCellSessions] = useState<Record<string, string>>({});
   const [liveSessions, setLiveSessions] = useState<string[]>([]);
+
+  // Camera lock: freeze rotation/zoom while working, snap to face the screen.
+  const [isCameraLocked, setIsCameraLocked] = useState<boolean>(false);
 
   // Trigger 3D model descent from ceiling on mount
   useEffect(() => {
@@ -380,6 +385,7 @@ export default function App() {
       // Middle click is button === 1
       if (e.button === 1) {
         e.preventDefault();
+        if (isCameraLocked) return;
         isDraggingRef.current = true;
         startMouseRef.current = { x: e.clientX, y: e.clientY };
         startRotRef.current = { rx: perspectiveRx, ry: perspectiveRy };
@@ -397,10 +403,9 @@ export default function App() {
       const newRx = startRotRef.current.rx - dy * 0.35;
 
       if (cameraMode === 'COORDINATES') {
-        // Interior head-turn: clamp so no wall plane crosses the eye
-        // (Chrome culls crossing planes and the room would blank out)
-        setPerspectiveRx(Math.min(Math.max(newRx, -30), 25));
-        setPerspectiveRy(Math.min(Math.max(newRy, -35), 35));
+        // Interior free-look: full 360° yaw, pitch clamped to avoid flipping
+        setPerspectiveRx(Math.min(Math.max(newRx, -55), 55));
+        setPerspectiveRy(newRy);
       } else {
         // Exterior orbit: free yaw, pitch capped so it doesn't flip upside-down
         setPerspectiveRx(Math.min(Math.max(newRx, -80), 80));
@@ -424,7 +429,7 @@ export default function App() {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [perspectiveRx, perspectiveRy, cameraMode]);
+  }, [perspectiveRx, perspectiveRy, cameraMode, isCameraLocked]);
 
   // Proximity mouse effects on inactive cells
   useEffect(() => {
@@ -443,13 +448,15 @@ export default function App() {
         const distance = Math.sqrt(dx * dx + dy * dy);
         const radius = 220;
 
+        const inner = cell.querySelector('.cell-3d') as HTMLDivElement | null;
         const face = cell.querySelector('.cell-face') as HTMLDivElement | null;
         const icon = cell.querySelector('.material-symbols-outlined') as HTMLSpanElement | null;
+        if (!inner) return;
 
         if (distance < radius) {
           const power = 1 - distance / radius;
           const translateZ = power * 28;
-          cell.style.transform = `translateZ(${translateZ}px)`;
+          inner.style.transform = `translateZ(${translateZ}px)`;
           if (face) {
             face.style.backgroundColor = `rgba(255, 255, 255, ${power * 0.08})`;
             face.style.borderColor = `rgba(255, 255, 255, ${0.15 + power * 0.25})`;
@@ -459,7 +466,7 @@ export default function App() {
             icon.style.transform = `scale(${1 + power * 0.35})`;
           }
         } else {
-          cell.style.transform = 'translateZ(0px)';
+          inner.style.transform = 'translateZ(0px)';
           if (face) {
             face.style.backgroundColor = '#161616';
             face.style.borderColor = '#2a2a2a';
@@ -481,14 +488,14 @@ export default function App() {
     const interior = cameraMode === 'COORDINATES';
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
+      if (isCameraLocked) return;
       const delta = e.deltaY * -0.65;
       setCurrentZoom((prev) => {
         const nextZoom = prev + delta;
-        // Interior: step back out through the portal only (forward would push
-        // side walls across the eye plane and blank them).
-        // Exterior: the original dolly range.
+        // Interior: walk forward/back inside the room (walls cull per-cell,
+        // so movement is safe). Exterior: the original dolly range.
         return interior
-          ? Math.min(Math.max(nextZoom, -250), 0)
+          ? Math.min(Math.max(nextZoom, -250), 250)
           : Math.min(Math.max(nextZoom, 0), 400);
       });
     };
@@ -502,6 +509,18 @@ export default function App() {
         container.removeEventListener('wheel', handleWheel);
       }
     };
+  }, [cameraMode, isCameraLocked]);
+
+  // Ctrl+Shift+L toggles the camera lock even while typing in a terminal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        toggleCameraLock();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [cameraMode]);
 
   // Re-center the dolly when hopping between interior/exterior cameras
@@ -532,6 +551,29 @@ export default function App() {
     setMainSessionId(sessionId);
     setSystemStatus(`${sessionId}_SPAWNED`);
     triggerNotification(`NEW TERMINAL SESSION [${sessionId}] SPAWNED ON ${wall.toUpperCase()} WALL`);
+  };
+
+  // Snap the camera to face the main screen straight-on.
+  const alignToFront = () => {
+    setPerspectiveRx(0);
+    setPerspectiveRy(0);
+    setCurrentZoom(0);
+    if (cameraMode !== 'COORDINATES') setCameraMode('COORDINATES');
+    triggerNotification('VIEWPORT ALIGNED TO MAIN SCREEN');
+  };
+
+  // Freeze/unfreeze all camera input; locking also aligns to the screen.
+  const toggleCameraLock = () => {
+    setIsCameraLocked((prev) => {
+      const next = !prev;
+      if (next) {
+        setPerspectiveRx(0);
+        setPerspectiveRy(0);
+        setCurrentZoom(0);
+      }
+      triggerNotification(next ? 'CAMERA LOCKED // WORK MODE ENGAGED' : 'CAMERA UNLOCKED // FREE LOOK');
+      return next;
+    });
   };
 
   // Right-click: kill the terminal bound to a cell.
@@ -588,15 +630,14 @@ export default function App() {
     }, 1500);
   };
 
-  // Interior "cockpit" camera. Room walls span local z:-600..+200; the CSS eye
-  // sits at z:+1200 (perspective). Chrome culls any element whose plane crosses
-  // the eye plane, so a true room-center 360° camera blanks the side walls.
-  // Instead the eye stands just outside the portal wall (local z:+220, 20px
-  // behind it) — every wall stays in front of the eye and renders, while the
-  // room still fills the whole view. Head-turn is clamped so walls never cross.
-  const INTERIOR_EYE_OFFSET = 980;                        // local→global z shift
-  const INTERIOR_EYE_LOCAL_Z = 1200 - INTERIOR_EYE_OFFSET; // pivot for look-around
-  const isInteriorMode = cameraMode === 'COORDINATES';
+  // Interior 360° camera. Room walls span local z:-600..+200 (center -200).
+  // The eye sits at the room's center with a wide-angle lens; grid walls are
+  // per-cell planes (see renderWallCells) so Chrome's eye-plane culling only
+  // removes the cells behind your head — the room stays closed at any yaw.
+  const INTERIOR_PERSPECTIVE = 700;
+  const INTERIOR_EYE_OFFSET = INTERIOR_PERSPECTIVE + 200;   // eye = room center
+  const INTERIOR_EYE_LOCAL_Z = INTERIOR_PERSPECTIVE - INTERIOR_EYE_OFFSET; // -200
+  const isInteriorMode = cameraMode === 'COORDINATES' || cameraMode === 'AXIS';
 
   // Determine the rotation styling of the Room container based on Camera Mode and Scroll Zoom
   const getRoomTransform = () => {
@@ -644,9 +685,20 @@ export default function App() {
 
   const calculatedZCoordinate = Math.round(12 + currentZoom / 50);
 
+  // Base placement of each grid wall, reproduced per-cell (see index.css:
+  // every cell is its own 3D plane so Chrome's eye-plane culling works
+  // per-cell instead of blanking a whole wall).
+  const WALL_BASE_TRANSFORMS: Record<string, string> = {
+    left: 'rotateY(90deg) translateZ(-400px)',
+    right: 'rotateY(-90deg) translateZ(-400px)',
+    top: 'rotateX(-90deg) translateZ(-400px)',
+    bottom: 'rotateX(90deg) translateZ(-400px)'
+  };
+
   // Generate 64 cells per wall
   const renderWallCells = (wallName: string) => {
     const cells = [];
+    const baseTransform = WALL_BASE_TRANSFORMS[wallName];
     for (let i = 0; i < 64; i++) {
       const menuIndex = (i + (wallName.charCodeAt(0) * 3)) % menuData.length;
       const associatedMenu = menuData[menuIndex];
@@ -654,37 +706,49 @@ export default function App() {
       const sessionId = cellSessions[cellKey];
       const isAlive = sessionId ? liveSessions.includes(sessionId) : false;
       const isMain = sessionId !== undefined && sessionId === mainSessionId;
+      const col = i % 8;
+      const row = Math.floor(i / 8);
 
       cells.push(
         <div
           key={cellKey}
           id={`${wallName}-cell-${i}`}
           className={`grid-cell ${isMain ? 'is-open' : ''} ${sessionId ? 'has-session' : ''}`}
+          style={{
+            left: `${col * 100 - 400}px`,
+            top: `${row * 100 - 400}px`,
+            // Rotate about the wall's original center so the per-cell
+            // placement is identical to the old whole-wall transform
+            transformOrigin: `${400 - col * 100}px ${400 - row * 100}px`,
+            transform: baseTransform
+          }}
           onClick={(e) => handleCellClick(wallName, i, e)}
           onContextMenu={(e) => handleCellKill(wallName, i, e)}
           title={sessionId ? `${sessionId} — 클릭: 메인으로 / 우클릭: 종료` : '클릭하면 새 터미널이 열립니다'}
         >
-          {/* Main Face */}
-          <div className="cell-face bg-[#161616] flex flex-col justify-center items-center gap-1">
-            <span className="material-symbols-outlined text-xs text-zinc-400 opacity-30 select-none">
-              {sessionId ? 'terminal' : associatedMenu.icon}
-            </span>
-            {sessionId && (
-              <span
-                className="session-dot w-1.5 h-1.5 rounded-full"
-                style={{
-                  backgroundColor: isAlive ? '#34d399' : '#ef4444',
-                  boxShadow: isAlive ? '0 0 6px #34d399' : 'none'
-                }}
-              />
-            )}
-          </div>
+          <div className="cell-3d">
+            {/* Main Face */}
+            <div className="cell-face bg-[#161616] flex flex-col justify-center items-center gap-1">
+              <span className="material-symbols-outlined text-xs text-zinc-400 opacity-30 select-none">
+                {sessionId ? 'terminal' : associatedMenu.icon}
+              </span>
+              {sessionId && (
+                <span
+                  className="session-dot w-1.5 h-1.5 rounded-full"
+                  style={{
+                    backgroundColor: isAlive ? '#34d399' : '#ef4444',
+                    boxShadow: isAlive ? '0 0 6px #34d399' : 'none'
+                  }}
+                />
+              )}
+            </div>
 
-          {/* 3D Extrusion Side Panels */}
-          <div className="cell-side side-top" />
-          <div className="cell-side side-bottom" />
-          <div className="cell-side side-left" />
-          <div className="cell-side side-right" />
+            {/* 3D Extrusion Side Panels */}
+            <div className="cell-side side-top" />
+            <div className="cell-side side-bottom" />
+            <div className="cell-side side-left" />
+            <div className="cell-side side-right" />
+          </div>
         </div>
       );
     }
@@ -753,7 +817,19 @@ export default function App() {
         </nav>
 
         <div className="flex items-center gap-4 text-white">
-          <button 
+          <button
+            id="btn-camera-lock"
+            onClick={toggleCameraLock}
+            className={`p-2 rounded border transition-all cursor-pointer ${
+              isCameraLocked
+                ? 'text-black bg-white border-white'
+                : 'border-[#333333] text-zinc-400 hover:text-white hover:border-zinc-500'
+            }`}
+            title={isCameraLocked ? '카메라 잠금 해제 (Ctrl+Shift+L)' : '카메라 잠금 — 작업 모드 (Ctrl+Shift+L)'}
+          >
+            {isCameraLocked ? <Lock className="w-4.5 h-4.5" /> : <Unlock className="w-4.5 h-4.5" />}
+          </button>
+          <button
             id="btn-drive-toggle"
             className={`p-2 rounded border border-[#333333] transition-all flex items-center gap-1.5 cursor-pointer ${driveOpen ? 'text-white bg-white/15 border-white/50' : 'text-zinc-400 hover:text-white hover:border-zinc-500'}`}
             onClick={() => {
@@ -1168,6 +1244,10 @@ export default function App() {
         ref={zoomContainerRef}
         className="perspective-container relative"
         id="zoom-container"
+        style={{
+          // Wide-angle lens inside the room, telephoto for exterior views
+          perspective: isInteriorMode ? `${INTERIOR_PERSPECTIVE}px` : '1200px'
+        }}
       >
         {/* Cosmic Starfield Background (twinkling space stars) */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
@@ -1201,29 +1281,12 @@ export default function App() {
             transformOrigin: isInteriorMode ? `50% 50% ${INTERIOR_EYE_LOCAL_Z}px` : '50% 50%'
           }}
         >
-          {/* FLOOR WALL */}
-          {cameraMode !== 'PLAN' && (
-            <div className="wall wall-bottom" id="bottom-wall">
-              {renderWallCells('bottom')}
-            </div>
-          )}
-
-          {/* CEILING WALL */}
-          {cameraMode !== 'PLAN' && cameraMode !== 'SECTION' && (
-            <div className="wall wall-top" id="top-wall">
-              {renderWallCells('top')}
-            </div>
-          )}
-
-          {/* LEFT WALL */}
-          <div className="wall wall-left" id="left-wall">
-            {renderWallCells('left')}
-          </div>
-
-          {/* RIGHT WALL */}
-          <div className="wall wall-right" id="right-wall">
-            {renderWallCells('right')}
-          </div>
+          {/* GRID WALLS — cells are direct children of the room anchor so each
+              renders on its own plane (no whole-wall culling from inside) */}
+          {cameraMode !== 'PLAN' && renderWallCells('bottom')}
+          {cameraMode !== 'PLAN' && cameraMode !== 'SECTION' && renderWallCells('top')}
+          {renderWallCells('left')}
+          {renderWallCells('right')}
 
           {/* CENTRAL WIREFRAME BUILDING MASS (future World Tree) —
               hidden in the interior cockpit view where it blocks the terminal */}
@@ -1414,12 +1477,18 @@ export default function App() {
             {/* Main Terminal Viewport: a monitor mounted at the wall's center,
                 sized to stay fully visible from the interior cockpit camera */}
             <div
-              className="relative z-30 w-full h-full flex items-center justify-center"
+              className="relative z-30 w-full h-full flex items-center justify-center cursor-pointer"
               id="dashboard-content"
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                // Clicking the monitor frame / wall around it aligns the view
+                // (clicks inside the terminal are stopped by TerminalView)
+                e.stopPropagation();
+                alignToFront();
+              }}
+              title="클릭하면 정면 정렬"
             >
               <div
-                className="w-[640px] h-[560px] flex flex-col bg-[#0c0c0c]/95 shadow-2xl"
+                className="w-[560px] h-[470px] flex flex-col bg-[#0c0c0c]/95 shadow-2xl"
                 style={{ border: `1px solid ${activeDim.starColor}40`, boxShadow: `0 0 40px ${activeDim.starColor}15` }}
               >
                 <div className="flex justify-between items-center px-4 py-2.5 border-b border-[#333333] shrink-0">
@@ -1459,6 +1528,16 @@ export default function App() {
           <div className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 border border-zinc-600" />
             <span className="text-[9px] font-bold tracking-[0.3em] uppercase text-zinc-400">Drafting: v.05</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {isCameraLocked ? (
+              <Lock className="w-3 h-3 text-white" />
+            ) : (
+              <Unlock className="w-3 h-3 text-zinc-500" />
+            )}
+            <span className={`text-[9px] font-bold tracking-[0.3em] uppercase ${isCameraLocked ? 'text-white' : 'text-zinc-400'}`}>
+              CAMERA: {isCameraLocked ? 'LOCKED' : 'FREE'}
+            </span>
           </div>
         </div>
         <div className="font-sans text-[9px] tracking-widest text-zinc-500">
