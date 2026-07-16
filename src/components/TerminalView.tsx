@@ -67,6 +67,16 @@ export default function TerminalView({
     };
     syncSize();
 
+    // Replayed scrollback may contain TUI cursor positioning drawn for an
+    // older grid (e.g. after a font-size change) — the cursor then sits one
+    // row off. Jiggle the PTY size once so full-screen apps repaint fresh.
+    if (replay) {
+      setTimeout(() => {
+        client.resize(sessionId, Math.max(2, term.cols - 1), term.rows);
+        setTimeout(() => client.resize(sessionId, term.cols, term.rows), 80);
+      }, 150);
+    }
+
     const resizeObserver = new ResizeObserver(syncSize);
     resizeObserver.observe(container);
 

@@ -2257,8 +2257,10 @@ export default function App() {
                             }}
                             onClick={() => setFocusedSession(pane.id)}
                           >
+                            {/* pane label sits at the BOTTOM (order-last) so the
+                                top pane row never hides under the fixed HUD bar */}
                             {docked.length > 1 && (
-                              <div className="flex justify-between items-center px-2 py-0.5 bg-[#111111] shrink-0">
+                              <div className="order-last flex justify-between items-center px-2 py-0.5 bg-[#111111] shrink-0">
                                 <span
                                   className="font-mono text-[8px] tracking-widest uppercase truncate"
                                   style={{
