@@ -139,6 +139,29 @@ body {
   background-color: #101613;
 }
 
+/* Cells whose session is currently docked on the main screen */
+.grid-cell.is-docked .cell-face {
+  border-color: rgba(255, 255, 255, 0.55);
+  background-color: #131a16;
+}
+
+/* Ceiling menu modules */
+.grid-cell.menu-cell .cell-face {
+  background-color: #171309;
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
+.grid-cell.menu-cell .cell-face .material-symbols-outlined {
+  color: #fbbf24;
+  opacity: 0.85;
+}
+
+.grid-cell.menu-cell:hover .cell-face,
+.grid-cell.menu-cell.is-dragging .cell-face {
+  border-color: rgba(251, 191, 36, 0.85);
+  background-color: #221c0c;
+}
+
 .grid-cell.has-session .material-symbols-outlined {
   opacity: 0.8;
 }

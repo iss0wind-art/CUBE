@@ -7,12 +7,13 @@ import { termClient } from '../lib/termClient';
 interface TerminalViewProps {
   sessionId: string;
   accentColor: string;
+  focused?: boolean;
 }
 
 // Renders one xterm.js terminal bound to a PTY session on the CUBE server.
 // Recreated whenever sessionId changes; scrollback is replayed from the
 // client-side buffer so swapping walls keeps history.
-export default function TerminalView({ sessionId, accentColor }: TerminalViewProps) {
+export default function TerminalView({ sessionId, accentColor, focused = true }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -64,7 +65,7 @@ export default function TerminalView({ sessionId, accentColor }: TerminalViewPro
     const stopWheel = (e: WheelEvent) => e.stopPropagation();
     container.addEventListener('wheel', stopWheel);
 
-    term.focus();
+    if (focused) term.focus();
 
     return () => {
       resizeObserver.disconnect();

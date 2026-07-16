@@ -141,9 +141,27 @@ export default function App() {
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
   // Terminal session state: every wall cell can host a PTY session.
-  const [mainSessionId, setMainSessionId] = useState<string>('MAIN');
   const [cellSessions, setCellSessions] = useState<Record<string, string>>({});
   const [liveSessions, setLiveSessions] = useState<string[]>([]);
+
+  // Main screen dock: up to 4 panes in two columns. A pane's column follows
+  // the wall its session lives on (left wall -> left column, right -> right),
+  // so the split layout mirrors the room's spatial grouping. Neutral sessions
+  // (CORE/top/bottom) fill whichever column is lighter.
+  interface DockedPane {
+    id: string;
+    side: 'L' | 'R';
+  }
+  const [docked, setDocked] = useState<DockedPane[]>([{ id: 'MAIN', side: 'L' }]);
+  const [focusedSession, setFocusedSession] = useState<string>('MAIN');
+
+  // Ceiling menu zone: menu modules live on top-wall cells, auto-stacked on
+  // the row nearest the main screen; draggable to any free ceiling cell.
+  const [menuCells, setMenuCells] = useState<Record<number, string>>(() =>
+    Object.fromEntries(menuData.map((_, m) => [m, `top-${m}`]))
+  );
+  const [draggingMenu, setDraggingMenu] = useState<number | null>(null);
+  const dragMovedRef = useRef<boolean>(false);
 
   // Camera lock: freeze rotation/zoom while working, snap to face the screen.
   const [isCameraLocked, setIsCameraLocked] = useState<boolean>(false);
@@ -171,6 +189,14 @@ export default function App() {
       }
       if (msg.type === 'exit' && msg.id) {
         setLiveSessions((prev) => prev.filter((id) => id !== msg.id));
+        setCellSessions((prev) =>
+          Object.fromEntries(Object.entries(prev).filter(([, sid]) => sid !== msg.id))
+        );
+        setDocked((prev) => {
+          const next = prev.filter((p) => p.id !== msg.id);
+          return next.length ? next : [{ id: 'MAIN', side: 'L' as const }];
+        });
+        setFocusedSession((prev) => (prev === msg.id ? 'MAIN' : prev));
         triggerNotification(`TERMINAL SESSION [${msg.id}] TERMINATED`);
       }
     });
@@ -434,7 +460,7 @@ export default function App() {
   // Proximity mouse effects on inactive cells
   useEffect(() => {
     const handleCellProximity = (e: MouseEvent) => {
-      const cells = document.querySelectorAll('.grid-cell:not(.is-open):not(.has-session)');
+      const cells = document.querySelectorAll('.grid-cell:not(.is-open):not(.has-session):not(.menu-cell)');
       const mouseX = e.clientX;
       const mouseY = e.clientY;
 
@@ -543,11 +569,87 @@ export default function App() {
   // Active dashboard data
   const activeDim = DIMENSIONS[currentDimIndex];
 
-  // Which wall cell hosts the main terminal (CORE = the default, cell-less MAIN)
-  const mainCellKey = Object.keys(cellSessions).find((key) => cellSessions[key] === mainSessionId);
-  const mainCellLocation = mainCellKey ? mainCellKey.toUpperCase() : 'CORE';
+  // Which wall cell hosts a session (CORE = the default, cell-less MAIN)
+  const locationOf = (sessionId: string): string => {
+    const key = Object.keys(cellSessions).find((k) => cellSessions[k] === sessionId);
+    return key ? key.toUpperCase() : 'CORE';
+  };
 
-  // Cell click: focus its terminal, or spawn a new one for that cell.
+  // Dock a session into the main screen (max 2 per column, 4 total).
+  const dockSession = (id: string) => {
+    setDocked((prev) => {
+      if (prev.some((p) => p.id === id)) return prev;
+      const countL = prev.filter((p) => p.side === 'L').length;
+      const countR = prev.filter((p) => p.side === 'R').length;
+      const side: 'L' | 'R' = id.startsWith('LEFT')
+        ? 'L'
+        : id.startsWith('RIGHT')
+          ? 'R'
+          : countL <= countR
+            ? 'L'
+            : 'R';
+      const sameSide = prev.filter((p) => p.side === side);
+      if (sameSide.length >= 2) {
+        const oldest = sameSide[0];
+        triggerNotification(`PANE [${oldest.id}] RETURNED TO ITS WALL — SLOT REASSIGNED`);
+        return prev.map((p) => (p === oldest ? { id, side } : p));
+      }
+      return [...prev, { id, side }];
+    });
+    setFocusedSession(id);
+  };
+
+  // Remove a pane from the main screen (session keeps running on its wall).
+  const undockSession = (id: string) => {
+    const next = docked.filter((p) => p.id !== id);
+    const finalDocked = next.length ? next : [{ id: 'MAIN', side: 'L' as const }];
+    setDocked(finalDocked);
+    if (focusedSession === id) setFocusedSession(finalDocked[0].id);
+  };
+
+  // Spawn a terminal with no cell chosen: auto-place on the emptier side
+  // wall, nearest-to-main depth column first, then dock it.
+  const autoSpawnTerminal = () => {
+    const bySessionCount = (w: string) =>
+      Object.keys(cellSessions).filter((k) => k.startsWith(`${w}-`)).length;
+    const walls = ['left', 'right'].sort((a, b) => bySessionCount(a) - bySessionCount(b));
+
+    for (const wall of walls) {
+      const grid = WALL_GRID[wall];
+      for (let col = 0; col < grid.cols; col++) {
+        for (let row = 0; row < grid.rows; row++) {
+          const i = row * grid.cols + col;
+          const cellKey = `${wall}-${i}`;
+          if (!cellSessions[cellKey]) {
+            const sessionId = `${wall.toUpperCase()}_${i}`;
+            termClient.create(sessionId);
+            setCellSessions((prev) => ({ ...prev, [cellKey]: sessionId }));
+            dockSession(sessionId);
+            setSystemStatus(`${sessionId}_SPAWNED`);
+            triggerNotification(`NEW TERMINAL AUTO-DOCKED AT [${cellKey.toUpperCase()}]`);
+            return;
+          }
+        }
+      }
+    }
+    triggerNotification('NO FREE WALL CELLS — CLEAR A SLOT FIRST');
+  };
+
+  // Ceiling menu module actions
+  const menuAction = (m: number) => {
+    const item = menuData[m];
+    if (item.title === '시스템설정') {
+      setSettingsOpen(true);
+      setDriveOpen(false);
+    } else if (item.title === '아카이브') {
+      setDriveOpen(true);
+      setSettingsOpen(false);
+    } else {
+      triggerNotification(`${item.title.toUpperCase()} MODULE — PHASE 2 LINK PENDING`);
+    }
+  };
+
+  // Cell click: dock/focus its terminal, or spawn a new one for that cell.
   const handleCellClick = (wall: string, index: number, event: React.MouseEvent) => {
     event.stopPropagation();
 
@@ -555,16 +657,21 @@ export default function App() {
     const existingSession = cellSessions[cellKey];
 
     if (existingSession) {
-      setMainSessionId(existingSession);
+      if (docked.some((p) => p.id === existingSession)) {
+        setFocusedSession(existingSession);
+        triggerNotification(`PANE [${existingSession}] FOCUSED`);
+      } else {
+        dockSession(existingSession);
+        triggerNotification(`TERMINAL [${existingSession}] DOCKED TO MAIN SCREEN`);
+      }
       setSystemStatus(`${existingSession}_FOCUSED`);
-      triggerNotification(`MAIN VIEWPORT SWITCHED TO TERMINAL [${existingSession}]`);
       return;
     }
 
     const sessionId = `${wall.toUpperCase()}_${index}`;
     termClient.create(sessionId);
     setCellSessions((prev) => ({ ...prev, [cellKey]: sessionId }));
-    setMainSessionId(sessionId);
+    dockSession(sessionId);
     setSystemStatus(`${sessionId}_SPAWNED`);
     triggerNotification(`NEW TERMINAL SESSION [${sessionId}] SPAWNED ON ${wall.toUpperCase()} WALL`);
   };
@@ -607,10 +714,39 @@ export default function App() {
     setCellSessions((prev) =>
       Object.fromEntries(Object.entries(prev).filter(([key]) => key !== cellKey))
     );
-    if (mainSessionId === sessionId) {
-      setMainSessionId('MAIN');
-    }
+    undockSession(sessionId);
   };
+
+  // Drag a ceiling menu module to another free ceiling cell.
+  useEffect(() => {
+    if (draggingMenu === null) return;
+
+    const handleMove = () => {
+      dragMovedRef.current = true;
+    };
+    const handleUp = (e: MouseEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const cellEl = el?.closest?.('[id^="top-cell-"]') as HTMLElement | null;
+      if (cellEl) {
+        const idx = Number(cellEl.id.replace('top-cell-', ''));
+        const targetKey = `top-${idx}`;
+        const occupied = Object.values(menuCells).includes(targetKey);
+        const hasTerminal = Boolean(cellSessions[targetKey]);
+        if (targetKey !== menuCells[draggingMenu] && !occupied && !hasTerminal) {
+          setMenuCells((prev) => ({ ...prev, [draggingMenu]: targetKey }));
+          triggerNotification(`MENU MODULE [${menuData[draggingMenu].title.toUpperCase()}] RELOCATED`);
+        }
+      }
+      setDraggingMenu(null);
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [draggingMenu, menuCells, cellSessions]);
 
   const handleBackWallClick = () => {
     if (isWarping || isSplitting) return;
@@ -747,15 +883,65 @@ export default function App() {
       const cellKey = `${wallName}-${i}`;
       const sessionId = cellSessions[cellKey];
       const isAlive = sessionId ? liveSessions.includes(sessionId) : false;
-      const isMain = sessionId !== undefined && sessionId === mainSessionId;
+      const isFocusedCell = sessionId !== undefined && sessionId === focusedSession;
+      const isDocked = sessionId !== undefined && docked.some((p) => p.id === sessionId);
       const col = i % grid.cols;
       const row = Math.floor(i / grid.cols);
+
+      // Ceiling menu module cell
+      const menuEntry =
+        wallName === 'top'
+          ? Object.entries(menuCells).find(([, ck]) => ck === cellKey)
+          : undefined;
+      if (menuEntry) {
+        const m = Number(menuEntry[0]);
+        const item = menuData[m];
+        cells.push(
+          <div
+            key={cellKey}
+            id={`${wallName}-cell-${i}`}
+            className={`grid-cell menu-cell ${draggingMenu === m ? 'is-dragging' : ''}`}
+            style={{
+              left: 0,
+              top: 0,
+              transformOrigin: '0 0',
+              transform: cellTransform(wallName, col, row)
+            }}
+            onMouseDown={(e) => {
+              if (e.button === 0) {
+                e.stopPropagation();
+                dragMovedRef.current = false;
+                setDraggingMenu(m);
+              }
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!dragMovedRef.current) menuAction(m);
+            }}
+            title={`${item.title} — 클릭: 열기 / 드래그: 위치 이동`}
+          >
+            <div className="cell-3d">
+              <div className="cell-face flex flex-col justify-center items-center gap-1">
+                <span className="material-symbols-outlined text-sm select-none">{item.icon}</span>
+                <span className="font-sans text-[7px] tracking-wider text-amber-200/70 select-none">
+                  {item.title}
+                </span>
+              </div>
+              <div className="cell-side side-top" />
+              <div className="cell-side side-bottom" />
+              <div className="cell-side side-left" />
+              <div className="cell-side side-right" />
+            </div>
+          </div>
+        );
+        continue;
+      }
 
       cells.push(
         <div
           key={cellKey}
           id={`${wallName}-cell-${i}`}
-          className={`grid-cell ${isMain ? 'is-open' : ''} ${sessionId ? 'has-session' : ''}`}
+          className={`grid-cell ${isFocusedCell ? 'is-open' : ''} ${isDocked ? 'is-docked' : ''} ${sessionId ? 'has-session' : ''}`}
           style={{
             left: 0,
             top: 0,
@@ -1254,7 +1440,7 @@ export default function App() {
           <div className="max-w-xs space-y-4">
             <div className="h-[1px] w-12 bg-white" />
             <p className="font-sans text-[10px] text-zinc-400 leading-relaxed uppercase tracking-wider">
-              {`OPERATOR CONSOLE: ${liveSessions.length} LIVE TERMINAL${liveSessions.length === 1 ? '' : 'S'}. CLICK ANY WALL CELL TO SPAWN A POWERSHELL SESSION / RIGHT-CLICK TO KILL. MAIN VIEWPORT: [${mainSessionId}]`}
+              {`OPERATOR CONSOLE: ${liveSessions.length} LIVE TERMINAL${liveSessions.length === 1 ? '' : 'S'}, ${docked.length}/4 DOCKED. CLICK ANY WALL CELL TO SPAWN OR DOCK / RIGHT-CLICK TO KILL. FOCUSED: [${focusedSession}]`}
             </p>
           </div>
 
@@ -1539,22 +1725,84 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <Terminal className="w-3 h-3" style={{ color: activeDim.starColor }} />
                     <span className="font-headline font-black tracking-[2px] text-[11px] text-white uppercase">
-                      {mainSessionId}
+                      {focusedSession}
                     </span>
                     <span
                       className="font-mono text-[8px] tracking-widest uppercase px-1.5 py-0.5 border"
                       style={{ color: activeDim.starColor, borderColor: `${activeDim.starColor}50` }}
                       title="이 터미널이 위치한 큐브 셀"
                     >
-                      @ {mainCellLocation}
+                      @ {locationOf(focusedSession)}
                     </span>
                   </div>
-                  <span className="font-mono text-[8px] text-zinc-500 tracking-widest uppercase">
-                    SESSIONS: {liveSessions.length}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-[8px] text-zinc-500 tracking-widest uppercase">
+                      SESSIONS: {liveSessions.length} / DOCKED: {docked.length}/4
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        autoSpawnTerminal();
+                      }}
+                      className="font-mono text-[8px] tracking-widest uppercase px-1.5 py-0.5 border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-400 cursor-pointer transition-colors"
+                      title="새 터미널 — 메인에서 가까운 빈 셀에 자동 배치"
+                    >
+                      + NEW
+                    </button>
+                  </div>
                 </div>
-                <div className="flex-1 min-h-0 p-1">
-                  <TerminalView sessionId={mainSessionId} accentColor={activeDim.starColor} />
+                <div className="flex-1 min-h-0 flex">
+                  {(['L', 'R'] as const).map((side) => {
+                    const panes = docked.filter((p) => p.side === side);
+                    if (panes.length === 0) return null;
+                    return (
+                      <div key={side} className="flex-1 min-w-0 flex flex-col">
+                        {panes.map((pane) => (
+                          <div
+                            key={pane.id}
+                            className="flex-1 min-h-0 flex flex-col"
+                            style={{
+                              border:
+                                focusedSession === pane.id && docked.length > 1
+                                  ? `1px solid ${activeDim.starColor}60`
+                                  : '1px solid #1a1a1a'
+                            }}
+                            onClick={() => setFocusedSession(pane.id)}
+                          >
+                            {docked.length > 1 && (
+                              <div className="flex justify-between items-center px-2 py-0.5 bg-[#111111] shrink-0">
+                                <span
+                                  className="font-mono text-[8px] tracking-widest uppercase truncate"
+                                  style={{
+                                    color: focusedSession === pane.id ? activeDim.starColor : '#71717a'
+                                  }}
+                                >
+                                  {pane.id} @ {locationOf(pane.id)}
+                                </span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    undockSession(pane.id);
+                                  }}
+                                  className="text-zinc-500 hover:text-white text-[10px] leading-none cursor-pointer pl-2"
+                                  title="벽으로 되돌리기 (세션 유지)"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            )}
+                            <div className="flex-1 min-h-0 p-0.5">
+                              <TerminalView
+                                sessionId={pane.id}
+                                accentColor={activeDim.starColor}
+                                focused={focusedSession === pane.id}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
