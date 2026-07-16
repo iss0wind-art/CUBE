@@ -478,7 +478,8 @@ export default function App() {
       const delta = e.deltaY * -0.65;
       setCurrentZoom((prev) => {
         const nextZoom = prev + delta;
-        return Math.min(Math.max(nextZoom, 0), 400);
+        // Interior camera: keep the eye between the walls (never pass through)
+        return Math.min(Math.max(nextZoom, -300), 300);
       });
     };
 
@@ -572,26 +573,33 @@ export default function App() {
     }, 1500);
   };
 
+  // Interior camera: the room pivot sits at the viewer's eye, so rotation
+  // means "looking around from inside" instead of orbiting the cube.
+  // Room walls span z:-600..+200 (local center -200); the CSS eye sits at
+  // z:+1200 (perspective), so translateZ(1400) puts the room center on the eye.
+  const INTERIOR_EYE_OFFSET = 1400;
+  const isInteriorMode = cameraMode === 'COORDINATES' || cameraMode === 'AXIS';
+
   // Determine the rotation styling of the Room container based on Camera Mode and Scroll Zoom
   const getRoomTransform = () => {
     let rx = -15;
     let ry = 15;
     let rz = 0;
-    let zVal = currentZoom;
+    let zVal = isInteriorMode ? INTERIOR_EYE_OFFSET + currentZoom : currentZoom;
 
     if (isWarping) {
-      zVal = currentZoom + 1600; // Fly deep into the back wall portal
-      rz = rotationAngle * 8;    // Rapid dimensional spin
+      zVal += 1600;           // Fly deep into the portal
+      rz = rotationAngle * 8; // Rapid dimensional spin
     }
 
     switch (cameraMode) {
       case 'COORDINATES':
-        // Camera angle is fully controlled by mouse wheel button (middle click) drag rotation
+        // Look around from inside; angle controlled by middle-click drag
         rx = perspectiveRx;
         ry = perspectiveRy;
         break;
       case 'AXIS':
-        // turntable auto rotation, independent of mouse pos
+        // Spin in place at the center of the room
         rx = -20;
         ry = rotationAngle;
         break;
@@ -1146,10 +1154,14 @@ export default function App() {
           ))}
         </div>
 
-        <div 
-          className={`cube-room ${isRisen ? 'is-risen' : ''}`} 
+        <div
+          className={`cube-room ${isRisen ? 'is-risen' : ''}`}
           id="cube-room"
-          style={{ transform: getRoomTransform() }}
+          style={{
+            transform: getRoomTransform(),
+            // Pivot at the room's own center (local z:-200) = the viewer's eye
+            transformOrigin: isInteriorMode ? '50% 50% -200px' : '50% 50%'
+          }}
         >
           {/* FLOOR WALL */}
           {cameraMode !== 'PLAN' && (
