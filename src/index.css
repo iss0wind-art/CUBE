@@ -340,6 +340,95 @@ body {
   opacity: 1;
 }
 
+/* World Tree (real git data) */
+.world-tree {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transition: transform 1.8s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: scaleZ(0.02);
+}
+
+.world-tree.is-grown {
+  transform: scaleZ(1);
+}
+
+.tree-anchor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+}
+
+.tree-limb {
+  position: absolute;
+  left: 0;
+  top: -3px;
+  height: 6px;
+  transform-origin: 0 50%;
+  transform-style: preserve-3d;
+  pointer-events: auto;
+}
+
+.tree-limb.trunk {
+  top: -8px;
+  height: 16px;
+  pointer-events: none;
+}
+
+.tree-limb.branch {
+  cursor: pointer;
+}
+
+.tree-limb.branch:hover {
+  filter: brightness(1.7);
+}
+
+.limb-fin {
+  position: absolute;
+  inset: 0;
+  transform: rotateX(90deg);
+  pointer-events: none;
+}
+
+.branch-tip {
+  position: absolute;
+  right: -5px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.tree-label {
+  position: absolute;
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.branch-label {
+  left: 12px;
+  top: 9px;
+}
+
+.project-label {
+  transform: translate(-50%, -50%);
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
 @keyframes wireframe-float {
   0%, 100% {
     transform: rotateX(-90deg) translateY(0);

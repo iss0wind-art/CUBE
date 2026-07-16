@@ -31,6 +31,7 @@ import {
   deleteDriveFile
 } from './lib/drive';
 import TerminalView from './components/TerminalView';
+import WorldTree, { TreeBranch, TreeProject } from './components/WorldTree';
 import { termClient } from './lib/termClient';
 
 interface MenuItem {
@@ -571,8 +572,22 @@ export default function App() {
 
   // Which wall cell hosts a session (CORE = the default, cell-less MAIN)
   const locationOf = (sessionId: string): string => {
+    if (sessionId.startsWith('TREE_')) return 'WORLDTREE';
     const key = Object.keys(cellSessions).find((k) => cellSessions[k] === sessionId);
     return key ? key.toUpperCase() : 'CORE';
+  };
+
+  // World tree branch click: open a terminal AT that branch's worktree path
+  // (or the repo root when the branch has no worktree) and dock it.
+  const openBranchTerminal = (project: TreeProject, branch: TreeBranch) => {
+    const safeName = branch.name.replace(/[^A-Za-z0-9_-]/g, '_').toUpperCase();
+    const sessionId = `TREE_${safeName}`;
+    termClient.create(sessionId, branch.worktreePath || project.path);
+    dockSession(sessionId);
+    setSystemStatus(`${sessionId}_LINKED`);
+    triggerNotification(
+      `WORLD TREE BRANCH [${branch.name}] → TERMINAL DOCKED (${branch.worktreePath ? 'WORKTREE' : 'REPO ROOT'})`
+    );
   };
 
   // Dock a session into the main screen (max 2 per column, 4 total).
@@ -985,18 +1000,6 @@ export default function App() {
       );
     }
     return cells;
-  };
-
-  const getSideStyle = (width: string, height: string, transform: string) => {
-    return {
-      width,
-      height,
-      transform,
-      borderColor: isGrayscale ? 'rgba(255, 255, 255, 0.25)' : `${activeDim.starColor}60`,
-      boxShadow: isGrayscale ? 'none' : `0 0 8px ${activeDim.starColor}20, inset 0 0 12px ${activeDim.starColor}10`,
-      backgroundColor: isGrayscale ? 'rgba(22, 22, 22, 0.45)' : `${activeDim.starColor}0c`,
-      transition: 'border-color 1s ease, box-shadow 1s ease, background-color 1s ease'
-    };
   };
 
   return (
@@ -1520,95 +1523,15 @@ export default function App() {
           {renderWallCells('left')}
           {renderWallCells('right')}
 
-          {/* CENTRAL WIREFRAME MASS (future World Tree) — stands mid-room;
-              from the default seat it is behind you (turn around to see it) */}
-          <div
-            className="building-container floating-mass"
-            id="building-mass"
-          >
-            {/* Level 1: Ceiling Massive Foundation */}
-            <div
-              className="building-level"
-              style={{
-                width: '240px',
-                height: '240px',
-                marginLeft: '-120px',
-                marginTop: '-120px',
-                transitionDelay: '0s',
-                transform: isRisen ? 'translateZ(400px)' : 'translateZ(600px)',
-                opacity: isRisen ? 1 : 0,
-                borderColor: isGrayscale ? 'rgba(255, 255, 255, 0.15)' : `${activeDim.starColor}30`
-              }}
-            >
-              <div className="level-side side-front" style={getSideStyle('240px', '80px', 'translateZ(120px)')} />
-              <div className="level-side side-back" style={getSideStyle('240px', '80px', 'rotateY(180deg) translateZ(120px)')} />
-              <div className="level-side side-left" style={getSideStyle('240px', '80px', 'rotateY(-90deg) translateZ(120px)')} />
-              <div className="level-side side-right" style={getSideStyle('240px', '80px', 'rotateY(90deg) translateZ(120px)')} />
-              <div className="level-side side-top" style={getSideStyle('240px', '240px', 'rotateX(90deg) translateZ(40px)')} />
-            </div>
-
-            {/* Level 2: Mid-Tier Layer */}
-            <div
-              className="building-level"
-              style={{
-                width: '180px',
-                height: '180px',
-                marginLeft: '-90px',
-                marginTop: '-90px',
-                transitionDelay: '0.2s',
-                transform: isRisen ? 'translateZ(320px)' : 'translateZ(600px)',
-                opacity: isRisen ? 1 : 0,
-                borderColor: isGrayscale ? 'rgba(255, 255, 255, 0.15)' : `${activeDim.starColor}30`
-              }}
-            >
-              <div className="level-side side-front" style={getSideStyle('180px', '100px', 'translateZ(90px)')} />
-              <div className="level-side side-back" style={getSideStyle('180px', '100px', 'rotateY(180deg) translateZ(90px)')} />
-              <div className="level-side side-left" style={getSideStyle('180px', '100px', 'rotateY(-90deg) translateZ(90px)')} />
-              <div className="level-side side-right" style={getSideStyle('180px', '100px', 'rotateY(90deg) translateZ(90px)')} />
-              <div className="level-side side-top" style={getSideStyle('180px', '180px', 'rotateX(90deg) translateZ(50px)')} />
-            </div>
-
-            {/* Level 3: Lower Core Slab */}
-            <div
-              className="building-level"
-              style={{
-                width: '120px',
-                height: '120px',
-                marginLeft: '-60px',
-                marginTop: '-60px',
-                transitionDelay: '0.4s',
-                transform: isRisen ? 'translateZ(220px)' : 'translateZ(600px)',
-                opacity: isRisen ? 1 : 0,
-                borderColor: isGrayscale ? 'rgba(255, 255, 255, 0.15)' : `${activeDim.starColor}30`
-              }}
-            >
-              <div className="level-side side-front" style={getSideStyle('120px', '120px', 'translateZ(60px)')} />
-              <div className="level-side side-back" style={getSideStyle('120px', '120px', 'rotateY(180deg) translateZ(60px)')} />
-              <div className="level-side side-left" style={getSideStyle('120px', '120px', 'rotateY(-90deg) translateZ(60px)')} />
-              <div className="level-side side-right" style={getSideStyle('120px', '120px', 'rotateY(90deg) translateZ(60px)')} />
-              <div className="level-side side-top" style={getSideStyle('120px', '120px', 'rotateX(90deg) translateZ(60px)')} />
-            </div>
-
-            {/* Level 4: Bottom Antenna Core */}
-            <div
-              className="building-level"
-              style={{
-                width: '60px',
-                height: '60px',
-                marginLeft: '-30px',
-                marginTop: '-30px',
-                transitionDelay: '0.6s',
-                transform: isRisen ? 'translateZ(100px)' : 'translateZ(600px)',
-                opacity: isRisen ? 1 : 0,
-                borderColor: isGrayscale ? 'rgba(255, 255, 255, 0.15)' : `${activeDim.starColor}30`
-              }}
-            >
-              <div className="level-side side-front" style={getSideStyle('60px', '160px', 'translateZ(30px)')} />
-              <div className="level-side side-back" style={getSideStyle('60px', '160px', 'rotateY(180deg) translateZ(30px)')} />
-              <div className="level-side side-left" style={getSideStyle('60px', '160px', 'rotateY(-90deg) translateZ(30px)')} />
-              <div className="level-side side-right" style={getSideStyle('60px', '160px', 'rotateY(90deg) translateZ(30px)')} />
-              <div className="level-side side-top" style={getSideStyle('60px', '60px', 'rotateX(90deg) translateZ(80px)')} />
-            </div>
+          {/* THE WORLD TREE — grown from real git data, rooted mid-room.
+              From the default seat it is behind you (turn around to see it);
+              STRUCTURE mode x-rays the walls to inspect it. */}
+          <div className="building-container" id="building-mass">
+            <WorldTree
+              accentColor={activeDim.starColor}
+              risen={isRisen}
+              onBranchClick={openBranchTerminal}
+            />
           </div>
 
           {/* OPPOSITE FRONT WALL PORTAL */}
