@@ -552,7 +552,7 @@ export default function App() {
 
   // Sensible default framing per camera mode
   useEffect(() => {
-    setCurrentZoom(0);
+    setCurrentZoom(cameraMode === 'COORDINATES' ? SEAT_ZOOM : 0);
     if (cameraMode === 'COORDINATES') {
       setPerspectiveRx(0);
       setPerspectiveRy(0);
@@ -679,10 +679,13 @@ export default function App() {
   // Snap the camera to face the main screen straight-on.
   const alignToFront = () => {
     const alreadyAligned =
-      cameraMode === 'COORDINATES' && perspectiveRx === 0 && perspectiveRy === 0 && currentZoom === 0;
+      cameraMode === 'COORDINATES' &&
+      perspectiveRx === 0 &&
+      perspectiveRy === 0 &&
+      currentZoom === SEAT_ZOOM;
     setPerspectiveRx(0);
     setPerspectiveRy(0);
-    setCurrentZoom(0);
+    setCurrentZoom(SEAT_ZOOM);
     if (cameraMode !== 'COORDINATES') setCameraMode('COORDINATES');
     if (!alreadyAligned) triggerNotification('VIEWPORT ALIGNED TO MAIN SCREEN');
   };
@@ -694,7 +697,7 @@ export default function App() {
       if (next) {
         setPerspectiveRx(0);
         setPerspectiveRy(0);
-        setCurrentZoom(0);
+        setCurrentZoom(SEAT_ZOOM);
       }
       triggerNotification(next ? 'CAMERA LOCKED // WORK MODE ENGAGED' : 'CAMERA UNLOCKED // FREE LOOK');
       return next;
@@ -791,6 +794,9 @@ export default function App() {
   const INTERIOR_PERSPECTIVE = 700;
   const INTERIOR_EYE_OFFSET = INTERIOR_PERSPECTIVE + 200;   // eye = room center
   const INTERIOR_EYE_LOCAL_Z = INTERIOR_PERSPECTIVE - INTERIOR_EYE_OFFSET; // -200
+  // Default working distance: far enough back that the enlarged monitor
+  // fits the viewport, close enough that text stays comfortably readable.
+  const SEAT_ZOOM = -120;
   const isInteriorMode = cameraMode === 'COORDINATES' || cameraMode === 'AXIS';
 
   // Determine the rotation styling of the Room container based on Camera Mode and Scroll Zoom
@@ -1713,15 +1719,17 @@ export default function App() {
               title="클릭하면 정면 정렬"
             >
               <div
-                className="w-[620px] h-[460px] flex flex-col bg-[#0c0c0c]/95 shadow-2xl"
+                className="w-[710px] h-[630px] flex flex-col-reverse bg-[#0c0c0c]/95 shadow-2xl"
                 style={{
                   border: `1px solid ${activeDim.starColor}30`,
                   boxShadow: `0 0 32px ${activeDim.starColor}12`,
-                  // Nudge down so the panel header clears the fixed top HUD bar
-                  transform: 'translateY(15px)'
+                  transform: 'translateY(-10px)'
                 }}
               >
-                <div className="flex justify-between items-center px-3 py-1 border-b border-[#222222] shrink-0">
+                {/* Status strip lives at the BOTTOM (flex-col-reverse): the top
+                    edge may sit under the fixed HUD bar, and a terminal's
+                    important content is at the bottom anyway */}
+                <div className="flex justify-between items-center px-3 py-1 border-t border-[#222222] shrink-0">
                   <div className="flex items-center gap-2">
                     <Terminal className="w-3 h-3" style={{ color: activeDim.starColor }} />
                     <span className="font-headline font-black tracking-[2px] text-[11px] text-white uppercase">
