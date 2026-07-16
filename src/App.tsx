@@ -28,6 +28,8 @@ import {
   downloadDriveFile,
   deleteDriveFile
 } from './lib/drive';
+import TerminalView from './components/TerminalView';
+import { termClient } from './lib/termClient';
 
 interface MenuItem {
   title: string;
@@ -119,7 +121,6 @@ export default function App() {
   const [currentZoom, setCurrentZoom] = useState<number>(0);
   const [isRisen, setIsRisen] = useState<boolean>(false);
   const [isSplitting, setIsSplitting] = useState<boolean>(false);
-  const [activeCell, setActiveCell] = useState<{ wall: string; index: number; data: MenuItem } | null>(null);
   const [systemStatus, setSystemStatus] = useState<string>('STABLE_GRID_INIT');
   const [rotationAngle, setRotationAngle] = useState<number>(15); // Used for auto-rotation in AXIS mode
   const [customNotify, setCustomNotify] = useState<string | null>(null);
@@ -137,6 +138,11 @@ export default function App() {
   const [saveFilename, setSaveFilename] = useState<string>('architect_revision_1');
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
+  // Terminal session state: every wall cell can host a PTY session.
+  const [mainSessionId, setMainSessionId] = useState<string>('MAIN');
+  const [cellSessions, setCellSessions] = useState<Record<string, string>>({});
+  const [liveSessions, setLiveSessions] = useState<string[]>([]);
+
   // Trigger 3D model descent from ceiling on mount
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -144,6 +150,26 @@ export default function App() {
       triggerNotification('CORE STRUCTURAL MODEL DESCENDING FROM THE CEILING...');
     }, 1000);
     return () => clearTimeout(timer);
+  }, []);
+
+  // Connect to the PTY server, boot the MAIN terminal, track live sessions
+  useEffect(() => {
+    termClient.connect();
+    termClient.create('MAIN');
+
+    const off = termClient.on((msg) => {
+      if (msg.type === 'sessions' && msg.sessions) {
+        setLiveSessions(msg.sessions.map((s) => s.id));
+      }
+      if (msg.type === 'created' && msg.id) {
+        setLiveSessions((prev) => (prev.includes(msg.id!) ? prev : [...prev, msg.id!]));
+      }
+      if (msg.type === 'exit' && msg.id) {
+        setLiveSessions((prev) => prev.filter((id) => id !== msg.id));
+        triggerNotification(`TERMINAL SESSION [${msg.id}] TERMINATED`);
+      }
+    });
+    return off;
   }, []);
 
   // Initialize auth state listener
@@ -237,7 +263,6 @@ export default function App() {
       isGrayscale,
       perspectiveRx,
       perspectiveRy,
-      activeCell,
       systemStatus,
     };
 
@@ -275,7 +300,6 @@ export default function App() {
       if (typeof content.isGrayscale === 'boolean') setIsGrayscale(content.isGrayscale);
       if (typeof content.perspectiveRx === 'number') setPerspectiveRx(content.perspectiveRx);
       if (typeof content.perspectiveRy === 'number') setPerspectiveRy(content.perspectiveRy);
-      if (content.activeCell !== undefined) setActiveCell(content.activeCell);
       if (content.systemStatus) setSystemStatus(content.systemStatus);
 
       triggerNotification(`STATE RESTORED FROM FILE: ${fileName.toUpperCase()}`);
@@ -400,7 +424,7 @@ export default function App() {
   // Proximity mouse effects on inactive cells
   useEffect(() => {
     const handleCellProximity = (e: MouseEvent) => {
-      const cells = document.querySelectorAll('.grid-cell:not(.is-open)');
+      const cells = document.querySelectorAll('.grid-cell:not(.is-open):not(.has-session)');
       const mouseX = e.clientX;
       const mouseY = e.clientY;
 
@@ -445,7 +469,7 @@ export default function App() {
 
     window.addEventListener('mousemove', handleCellProximity);
     return () => window.removeEventListener('mousemove', handleCellProximity);
-  }, [activeCell]);
+  }, []);
 
   // Handle scroll wheel zoom
   useEffect(() => {
@@ -472,34 +496,43 @@ export default function App() {
   // Active dashboard data
   const activeDim = DIMENSIONS[currentDimIndex];
 
-  const dashboardTitle = activeCell ? activeCell.data.title : activeDim.name;
-  const dashboardIcon = activeCell ? activeCell.data.icon : 'compass_calibration';
-  const dashboardStat1 = activeCell ? activeCell.data.stat1 : activeDim.systemStatus;
-  const dashboardStat2 = activeCell ? activeCell.data.stat2 : activeDim.id;
-  const dashboardSectionText = activeCell ? `SECTION: ${activeCell.data.title.toUpperCase()}` : activeDim.sub;
-
+  // Cell click: focus its terminal, or spawn a new one for that cell.
   const handleCellClick = (wall: string, index: number, event: React.MouseEvent) => {
     event.stopPropagation();
-    
-    // Check if the clicked cell was already selected
-    if (activeCell && activeCell.wall === wall && activeCell.index === index) {
-      // De-select
-      setActiveCell(null);
-      setSystemStatus(activeDim.systemStatus);
-    } else {
-      // Find a pseudo-random menu item for this cell to keep it highly dynamic
-      const menuIndex = (index + (wall.charCodeAt(0) * 3)) % menuData.length;
-      const selectedMenu = menuData[menuIndex];
-      
-      setActiveCell({
-        wall,
-        index,
-        data: selectedMenu
-      });
-      setSystemStatus(selectedMenu.title.toUpperCase() + '_ACTIVE');
-      
-      // Temporarily flash a status alert message
-      triggerNotification(selectedMenu.statusText);
+
+    const cellKey = `${wall}-${index}`;
+    const existingSession = cellSessions[cellKey];
+
+    if (existingSession) {
+      setMainSessionId(existingSession);
+      setSystemStatus(`${existingSession}_FOCUSED`);
+      triggerNotification(`MAIN VIEWPORT SWITCHED TO TERMINAL [${existingSession}]`);
+      return;
+    }
+
+    const sessionId = `${wall.toUpperCase()}_${index}`;
+    termClient.create(sessionId);
+    setCellSessions((prev) => ({ ...prev, [cellKey]: sessionId }));
+    setMainSessionId(sessionId);
+    setSystemStatus(`${sessionId}_SPAWNED`);
+    triggerNotification(`NEW TERMINAL SESSION [${sessionId}] SPAWNED ON ${wall.toUpperCase()} WALL`);
+  };
+
+  // Right-click: kill the terminal bound to a cell.
+  const handleCellKill = (wall: string, index: number, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const cellKey = `${wall}-${index}`;
+    const sessionId = cellSessions[cellKey];
+    if (!sessionId) return;
+
+    termClient.kill(sessionId);
+    setCellSessions((prev) =>
+      Object.fromEntries(Object.entries(prev).filter(([key]) => key !== cellKey))
+    );
+    if (mainSessionId === sessionId) {
+      setMainSessionId('MAIN');
     }
   };
 
@@ -586,20 +619,34 @@ export default function App() {
     for (let i = 0; i < 64; i++) {
       const menuIndex = (i + (wallName.charCodeAt(0) * 3)) % menuData.length;
       const associatedMenu = menuData[menuIndex];
-      const isOpen = activeCell?.wall === wallName && activeCell?.index === i;
+      const cellKey = `${wallName}-${i}`;
+      const sessionId = cellSessions[cellKey];
+      const isAlive = sessionId ? liveSessions.includes(sessionId) : false;
+      const isMain = sessionId !== undefined && sessionId === mainSessionId;
 
       cells.push(
         <div
-          key={`${wallName}-${i}`}
+          key={cellKey}
           id={`${wallName}-cell-${i}`}
-          className={`grid-cell ${isOpen ? 'is-open' : ''}`}
+          className={`grid-cell ${isMain ? 'is-open' : ''} ${sessionId ? 'has-session' : ''}`}
           onClick={(e) => handleCellClick(wallName, i, e)}
+          onContextMenu={(e) => handleCellKill(wallName, i, e)}
+          title={sessionId ? `${sessionId} — 클릭: 메인으로 / 우클릭: 종료` : '클릭하면 새 터미널이 열립니다'}
         >
           {/* Main Face */}
-          <div className="cell-face bg-[#161616] flex flex-col justify-center items-center">
+          <div className="cell-face bg-[#161616] flex flex-col justify-center items-center gap-1">
             <span className="material-symbols-outlined text-xs text-zinc-400 opacity-30 select-none">
-              {associatedMenu.icon}
+              {sessionId ? 'terminal' : associatedMenu.icon}
             </span>
+            {sessionId && (
+              <span
+                className="session-dot w-1.5 h-1.5 rounded-full"
+                style={{
+                  backgroundColor: isAlive ? '#34d399' : '#ef4444',
+                  boxShadow: isAlive ? '0 0 6px #34d399' : 'none'
+                }}
+              />
+            )}
           </div>
 
           {/* 3D Extrusion Side Panels */}
@@ -1045,10 +1092,7 @@ export default function App() {
           <div className="max-w-xs space-y-4">
             <div className="h-[1px] w-12 bg-white" />
             <p className="font-sans text-[10px] text-zinc-400 leading-relaxed uppercase tracking-wider">
-              {activeCell 
-                ? `ACTIVE MODULAR UNIT FOUND AT SECTOR [${activeCell.wall.toUpperCase()}-${activeCell.index}]. DRAFTING DIAGNOSTIC TELEMETRY CAPTURED.`
-                : 'ARCHITECTURAL PRECISION SYSTEM: SELECT A SECTOR FROM THE PERIMETER WALLS TO ACTIVATE CORE MODULES. DASHBOARD SYNC INITIATED.'
-              }
+              {`OPERATOR CONSOLE: ${liveSessions.length} LIVE TERMINAL${liveSessions.length === 1 ? '' : 'S'}. CLICK ANY WALL CELL TO SPAWN A POWERSHELL SESSION / RIGHT-CLICK TO KILL. MAIN VIEWPORT: [${mainSessionId}]`}
             </p>
           </div>
 
@@ -1074,18 +1118,10 @@ export default function App() {
       </div>
 
       {/* 3D Scene Viewport */}
-      <main 
-        ref={zoomContainerRef} 
-        className="perspective-container relative" 
+      <main
+        ref={zoomContainerRef}
+        className="perspective-container relative"
         id="zoom-container"
-        onClick={() => {
-          // Clicking outer background clears selected cell
-          if (activeCell) {
-            setActiveCell(null);
-            setSystemStatus('STABLE_GRID_INIT');
-            triggerNotification('SECTOR ACCESS SYSTEM RETURNED TO STANDBY');
-          }
-        }}
       >
         {/* Cosmic Starfield Background (twinkling space stars) */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
@@ -1320,45 +1356,28 @@ export default function App() {
               borderColor: isGrayscale ? undefined : `${activeDim.starColor}40`
             }}
           >
-            {/* Interactive Dashboard Content */}
-            <div className="relative z-30 p-12 flex flex-col items-center justify-center text-center w-full" id="dashboard-content">
-              <div className="mb-6 transition-all duration-500" id="dash-icon-container">
-                <span className="material-symbols-outlined text-6xl text-white" id="dash-icon">
-                  {dashboardIcon}
-                </span>
-              </div>
-
-              <h1 className="font-headline text-5xl font-black tracking-tighter mb-4 text-white uppercase" id="dash-title">
-                {dashboardTitle}
-              </h1>
-
-              <div className="flex items-center gap-4 text-zinc-400 font-sans text-[10px] tracking-widest uppercase mb-12">
-                <span id="dash-coord-x" className="font-mono">
-                  {activeCell ? `X: 0${activeCell.index % 8}` : 'X: 02'}
-                </span>
-                <div className="w-1.5 h-1.5 bg-[#333333] rounded-full" />
-                <span id="dash-coord-y" className="font-mono">
-                  {activeCell ? `Y: 0${Math.floor(activeCell.index / 8)}` : 'Y: 04'}
-                </span>
-                <div className="w-1.5 h-1.5 bg-[#333333] rounded-full" />
-                <span id="dash-section">
-                  {dashboardSectionText}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 w-full max-w-md">
-                <div className="p-6 border border-[#333333] text-left bg-zinc-950/80 transition-all duration-300 hover:bg-zinc-900">
-                  <span className="font-sans text-[9px] tracking-widest text-zinc-500 block mb-1 uppercase">SYNC_STATUS</span>
-                  <span className="font-headline font-bold text-2xl text-white" id="dash-stat-1">
-                    {dashboardStat1}
+            {/* Main Terminal Viewport */}
+            <div
+              className="relative z-30 w-full h-full p-10 pb-14 flex flex-col"
+              id="dashboard-content"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center mb-4 shrink-0">
+                <div className="flex items-center gap-3">
+                  <Terminal className="w-4 h-4" style={{ color: activeDim.starColor }} />
+                  <span className="font-headline font-black tracking-[3px] text-sm text-white uppercase">
+                    {mainSessionId}
+                  </span>
+                  <span className="font-mono text-[9px] text-zinc-500 tracking-widest uppercase">
+                    POWERSHELL // MAIN_VIEWPORT
                   </span>
                 </div>
-                <div className="p-6 border border-[#333333] text-left bg-zinc-950/80 transition-all duration-300 hover:bg-zinc-900">
-                  <span className="font-sans text-[9px] tracking-widest text-zinc-500 block mb-1 uppercase">ACCESS_LEVEL</span>
-                  <span className="font-headline font-bold text-2xl text-white" id="dash-stat-2">
-                    {dashboardStat2}
-                  </span>
-                </div>
+                <span className="font-mono text-[9px] text-zinc-500 tracking-widest uppercase">
+                  SESSIONS: {liveSessions.length}
+                </span>
+              </div>
+              <div className="flex-1 min-h-0 border border-[#333333] bg-[#0c0c0c] p-2">
+                <TerminalView sessionId={mainSessionId} accentColor={activeDim.starColor} />
               </div>
             </div>
 

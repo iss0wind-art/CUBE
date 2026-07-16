@@ -119,6 +119,21 @@ body {
   opacity: 1;
 }
 
+/* Cells hosting a live terminal session */
+.grid-cell.has-session .cell-face {
+  border-color: rgba(52, 211, 153, 0.45);
+  background-color: #101613;
+}
+
+.grid-cell.has-session .material-symbols-outlined {
+  opacity: 0.8;
+}
+
+/* The cell whose session is on the main viewport: keep the pop-out but stay dark */
+.grid-cell.is-open .cell-face {
+  background-color: #0c0c0c;
+}
+
 .grid-cell .side-top {
   height: 120px;
   width: 100%;
