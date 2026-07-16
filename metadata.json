@@ -1,0 +1,6 @@
+{
+  "name": "Architect OS",
+  "description": "An interactive 3D architectural grid system and drafting visualizer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

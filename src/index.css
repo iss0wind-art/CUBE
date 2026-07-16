@@ -1,0 +1,422 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-headline: "Manrope", sans-serif;
+  --font-mono: "Courier New", Courier, monospace;
+}
+
+body {
+  background-color: #111111;
+  color: #ffffff;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  margin: 0;
+  font-family: var(--font-sans);
+}
+
+.perspective-container {
+  perspective: 1200px;
+  perspective-origin: 50% 50%;
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, #1a1a1a 0%, #0d0d0d 100%);
+  overflow: hidden;
+}
+
+.cube-room {
+  position: relative;
+  width: 800px;
+  height: 800px;
+  transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.wall {
+  position: absolute;
+  width: 800px;
+  height: 800px;
+  background: transparent;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+}
+
+.grid-cell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  cursor: pointer;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.wall-left {
+  transform: rotateY(90deg) translateZ(-400px);
+  border-right: 1px solid #333333;
+}
+
+.wall-right {
+  transform: rotateY(-90deg) translateZ(-400px);
+  border-left: 1px solid #333333;
+}
+
+.wall-top {
+  transform: rotateX(-90deg) translateZ(-400px);
+  border-bottom: 1px solid #333333;
+}
+
+.wall-bottom {
+  transform: rotateX(90deg) translateZ(-400px);
+  border-top: 1px solid #333333;
+}
+
+.wall .grid-cell {
+  border: 0.5px solid rgba(255, 255, 255, 0.05);
+}
+
+.cell-face {
+  position: absolute;
+  inset: 0;
+  background: #161616;
+  border: 0.5px solid #2a2a2a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: background-color 0.3s, border-color 0.3s, transform 0.3s;
+}
+
+.grid-cell.is-open {
+  transform: translateZ(120px) !important;
+  z-index: 100;
+}
+
+.grid-cell.is-open .cell-face {
+  border: 1.5px solid #ffffff;
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.5);
+  background-color: #ffffff;
+}
+
+/* 3D Sides of Extruded Grid Cells */
+.grid-cell .cell-side {
+  position: absolute;
+  background: #222222;
+  border: 0.5px solid #333333;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+
+.grid-cell.is-open .cell-side {
+  opacity: 1;
+}
+
+.grid-cell .side-top {
+  height: 120px;
+  width: 100%;
+  top: 0;
+  left: 0;
+  transform-origin: top;
+  transform: rotateX(-90deg);
+}
+
+.grid-cell .side-bottom {
+  height: 120px;
+  width: 100%;
+  bottom: 0;
+  left: 0;
+  transform-origin: bottom;
+  transform: rotateX(90deg);
+}
+
+.grid-cell .side-left {
+  width: 120px;
+  height: 100%;
+  top: 0;
+  left: 0;
+  transform-origin: left;
+  transform: rotateY(90deg);
+}
+
+.grid-cell .side-right {
+  width: 120px;
+  height: 100%;
+  top: 0;
+  right: 0;
+  transform-origin: right;
+  transform: rotateY(-90deg);
+}
+
+.wall-back {
+  transform: translateZ(-600px);
+  background-color: #111111;
+  border: 1px solid #333333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s;
+  transform-style: preserve-3d;
+}
+
+.wall-front {
+  transform: translateZ(200px) rotateY(180deg);
+  background-color: rgba(17, 17, 17, 0.15);
+  backdrop-filter: blur(1.5px);
+  -webkit-backdrop-filter: blur(1.5px);
+  border: 1.5px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s;
+  transform-style: preserve-3d;
+  pointer-events: auto;
+}
+
+.dashboard-split-left,
+.dashboard-split-right {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 50%;
+  background: rgba(18, 18, 18, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1), background-color 1s ease, border-color 1s ease;
+  z-index: 20;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dashboard-split-left {
+  left: 0;
+  border-right: 0.5px solid #333333;
+}
+
+.dashboard-split-right {
+  right: 0;
+  border-left: 0.5px solid #333333;
+}
+
+.is-splitting .dashboard-split-left {
+  transform: translateX(-100%);
+}
+
+.is-splitting .dashboard-split-right {
+  transform: translateX(100%);
+}
+
+.is-splitting #dashboard-content {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateZ(200px) scale(0.85);
+}
+
+#dashboard-content {
+  transition: opacity 0.5s, transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ui-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 40;
+}
+
+.pointer-all {
+  pointer-events: all;
+}
+
+.atmospheric-vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle, transparent 30%, rgba(0, 0, 0, 0.6) 100%);
+  z-index: 10;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 200, 'GRAD' 0, 'opsz' 24;
+  transition: all 0.3s;
+}
+
+/* 3D Wireframe Building Styles */
+.building-container {
+  position: absolute;
+  bottom: 400px; /* Offset to center of room */
+  left: 400px;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transform: rotateX(-90deg); /* Oriented relative to floor */
+  pointer-events: none;
+  z-index: 10;
+}
+
+.building-level {
+  position: absolute;
+  width: 200px;
+  height: 200px;
+  transform-style: preserve-3d;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  transition: transform 2s cubic-bezier(0.16, 1, 0.3, 1), opacity 1s;
+  opacity: 0;
+}
+
+.level-side {
+  position: absolute;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(22, 22, 22, 0.45);
+  backdrop-filter: blur(2px);
+  transition: background-color 0.3s, border-color 0.3s;
+}
+
+/* Animation States */
+.is-risen .building-level {
+  opacity: 1;
+}
+
+@keyframes wireframe-float {
+  0%, 100% {
+    transform: rotateX(-90deg) translateY(0);
+  }
+  50% {
+    transform: rotateX(-90deg) translateY(-15px);
+  }
+}
+
+.floating-mass {
+  animation: wireframe-float 6s ease-in-out infinite;
+}
+
+@keyframes star-twinkle {
+  0%, 100% {
+    opacity: 0.2;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+.twinkling-star {
+  animation: star-twinkle 4s ease-in-out infinite;
+}
+
+/* Star streaking/warp speed effect */
+@keyframes star-streak {
+  0% {
+    transform: scaleY(1) translateY(0);
+    opacity: 0.2;
+  }
+  50% {
+    transform: scaleY(12) translateY(120px);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(1) translateY(240px);
+    opacity: 0;
+  }
+}
+
+.star-streaking {
+  animation: star-streak 0.6s linear infinite !important;
+}
+
+/* Portal Vortex Visualizer inside Back Wall */
+.portal-vortex-container {
+  width: 330px;
+  height: 330px;
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.75;
+  transform: scale(1) rotate(0deg);
+  transition: opacity 1.2s cubic-bezier(0.16, 1, 0.3, 1), transform 1.2s cubic-bezier(0.16, 1, 0.3, 1), filter 1.2s ease;
+  filter: drop-shadow(0 0 20px currentColor);
+  z-index: 10;
+}
+
+.portal-vortex-container.warp-supercharge {
+  opacity: 1;
+  transform: scale(3.5) rotate(720deg);
+  filter: drop-shadow(0 0 45px currentColor);
+}
+
+.portal-vortex-container.warp-supercharge .portal-ring.ring-1 {
+  animation: spin-clockwise 2s linear infinite;
+}
+
+.portal-vortex-container.warp-supercharge .portal-ring.ring-2 {
+  animation: spin-counter-portal 1.5s linear infinite;
+}
+
+.portal-vortex-container.warp-supercharge .portal-ring.ring-3 {
+  animation: spin-clockwise 0.8s linear infinite;
+}
+
+.portal-ring {
+  position: absolute;
+  border: 2px dashed;
+  border-radius: 50%;
+  transition: border-color 0.5s ease;
+}
+
+.portal-ring.ring-1 {
+  width: 100%;
+  height: 100%;
+  animation: spin-clockwise 20s linear infinite;
+}
+
+.portal-ring.ring-2 {
+  width: 75%;
+  height: 75%;
+  animation: spin-counter-portal 14s linear infinite;
+  border-style: dotted;
+}
+
+.portal-ring.ring-3 {
+  width: 50%;
+  height: 50%;
+  animation: spin-clockwise 8s linear infinite;
+}
+
+.portal-core {
+  position: absolute;
+  width: 32%;
+  height: 32%;
+  border-radius: 50%;
+  animation: pulse-portal 1.2s ease-in-out infinite alternate;
+  mix-blend-mode: screen;
+}
+
+@keyframes spin-clockwise {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes spin-counter-portal {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
+
+@keyframes pulse-portal {
+  0% { transform: scale(0.75); opacity: 0.45; }
+  100% { transform: scale(1.25); opacity: 0.95; }
+}
+
+
