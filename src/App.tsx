@@ -19,7 +19,8 @@ import {
   Trash2,
   Play,
   Lock,
-  Unlock
+  Unlock,
+  Share2
 } from 'lucide-react';
 import {
   initAuth,
@@ -164,6 +165,29 @@ export default function App() {
   const [draggingMenu, setDraggingMenu] = useState<number | null>(null);
   const dragMovedRef = useRef<boolean>(false);
 
+  // Mind-map links between cells: drag from one cube to another to connect
+  // them; a 3D beam spans the room. Toggleable, persisted locally.
+  interface CellLink {
+    id: string;
+    from: string;
+    to: string;
+  }
+  const [links, setLinks] = useState<CellLink[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('cube-links') || '[]');
+    } catch {
+      return [];
+    }
+  });
+  const [showLinks, setShowLinks] = useState<boolean>(true);
+  const [linkDragFrom, setLinkDragFrom] = useState<string | null>(null);
+  const linkDragRef = useRef<{ from: string; startX: number; startY: number; active: boolean } | null>(null);
+  const suppressClickRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    localStorage.setItem('cube-links', JSON.stringify(links));
+  }, [links]);
+
   // Camera lock: freeze rotation/zoom while working, snap to face the screen.
   const [isCameraLocked, setIsCameraLocked] = useState<boolean>(false);
 
@@ -296,6 +320,7 @@ export default function App() {
       perspectiveRx,
       perspectiveRy,
       systemStatus,
+      links,
     };
 
     try {
@@ -333,6 +358,7 @@ export default function App() {
       if (typeof content.perspectiveRx === 'number') setPerspectiveRx(content.perspectiveRx);
       if (typeof content.perspectiveRy === 'number') setPerspectiveRy(content.perspectiveRy);
       if (content.systemStatus) setSystemStatus(content.systemStatus);
+      if (Array.isArray(content.links)) setLinks(content.links);
 
       triggerNotification(`STATE RESTORED FROM FILE: ${fileName.toUpperCase()}`);
     } catch (err) {
@@ -664,9 +690,70 @@ export default function App() {
     }
   };
 
+  // Mind-map link helpers
+  const addLink = (from: string, to: string) => {
+    setLinks((prev) => {
+      const exists = prev.some(
+        (l) => (l.from === from && l.to === to) || (l.from === to && l.to === from)
+      );
+      if (exists) {
+        triggerNotification('LINK ALREADY ESTABLISHED');
+        return prev;
+      }
+      triggerNotification(`LINK ESTABLISHED: [${from.toUpperCase()}] ⇄ [${to.toUpperCase()}]`);
+      return [...prev, { id: `${from}->${to}`, from, to }];
+    });
+  };
+
+  const removeLink = (linkId: string) => {
+    setLinks((prev) => prev.filter((l) => l.id !== linkId));
+    triggerNotification('LINK SEVERED');
+  };
+
+  // Track left-drag from a cell: past a small threshold it becomes a
+  // link-drawing gesture; releasing over another cell connects the two.
+  useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      const drag = linkDragRef.current;
+      if (!drag) return;
+      if (!drag.active && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > 10) {
+        drag.active = true;
+        setLinkDragFrom(drag.from);
+        document.body.style.cursor = 'crosshair';
+      }
+    };
+    const handleUp = (e: MouseEvent) => {
+      const drag = linkDragRef.current;
+      if (!drag) return;
+      if (drag.active) {
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        const cellEl = el?.closest?.('[id*="-cell-"]') as HTMLElement | null;
+        const match = cellEl?.id.match(/^(left|right|top|bottom)-cell-(\d+)$/);
+        if (match) {
+          const target = `${match[1]}-${match[2]}`;
+          if (target !== drag.from) addLink(drag.from, target);
+        }
+        document.body.style.cursor = '';
+        suppressClickRef.current = true;
+        setTimeout(() => {
+          suppressClickRef.current = false;
+        }, 0);
+      }
+      linkDragRef.current = null;
+      setLinkDragFrom(null);
+    };
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, []);
+
   // Cell click: dock/focus its terminal, or spawn a new one for that cell.
   const handleCellClick = (wall: string, index: number, event: React.MouseEvent) => {
     event.stopPropagation();
+    if (suppressClickRef.current) return; // a link-drag just ended here
 
     const cellKey = `${wall}-${index}`;
     const existingSession = cellSessions[cellKey];
@@ -876,6 +963,30 @@ export default function App() {
     bottom: { cols: 8, rows: DEPTH_CELLS }
   };
 
+  // Room-space center of a cell (with a small inward offset so link beams
+  // never z-fight the wall faces).
+  const cellCenter = (cellKey: string): [number, number, number] | null => {
+    const dash = cellKey.lastIndexOf('-');
+    const wall = cellKey.slice(0, dash);
+    const i = Number(cellKey.slice(dash + 1));
+    const grid = WALL_GRID[wall];
+    if (!grid || Number.isNaN(i)) return null;
+    const col = i % grid.cols;
+    const row = Math.floor(i / grid.cols);
+    switch (wall) {
+      case 'left':
+        return [-(HALF_W - 4), -HALF_H + row * CELL + 50, Z_MIN + col * CELL + 50];
+      case 'right':
+        return [HALF_W - 4, -HALF_H + row * CELL + 50, Z_MIN + col * CELL + 50];
+      case 'top':
+        return [-HALF_W + col * CELL + 50, -(HALF_H - 4), Z_MIN + row * CELL + 50];
+      case 'bottom':
+        return [-HALF_W + col * CELL + 50, HALF_H - 4, Z_MIN + row * CELL + 50];
+      default:
+        return null;
+    }
+  };
+
   // Explicit per-cell placement (each cell is its own 3D plane; inward-facing
   // normals so backface culling keeps the interior view clean).
   const cellTransform = (wallName: string, col: number, row: number): string => {
@@ -962,16 +1073,21 @@ export default function App() {
         <div
           key={cellKey}
           id={`${wallName}-cell-${i}`}
-          className={`grid-cell ${isFocusedCell ? 'is-open' : ''} ${isDocked ? 'is-docked' : ''} ${sessionId ? 'has-session' : ''}`}
+          className={`grid-cell ${isFocusedCell ? 'is-open' : ''} ${isDocked ? 'is-docked' : ''} ${sessionId ? 'has-session' : ''} ${linkDragFrom === cellKey ? 'link-origin' : ''}`}
           style={{
             left: 0,
             top: 0,
             transformOrigin: '0 0',
             transform: cellTransform(wallName, col, row)
           }}
+          onMouseDown={(e) => {
+            if (e.button === 0) {
+              linkDragRef.current = { from: cellKey, startX: e.clientX, startY: e.clientY, active: false };
+            }
+          }}
           onClick={(e) => handleCellClick(wallName, i, e)}
           onContextMenu={(e) => handleCellKill(wallName, i, e)}
-          title={sessionId ? `${sessionId} — 클릭: 메인으로 / 우클릭: 종료` : '클릭하면 새 터미널이 열립니다'}
+          title={sessionId ? `${sessionId} — 클릭: 메인으로 / 드래그: 연결 / 우클릭: 종료` : '클릭: 새 터미널 / 드래그: 다른 큐브와 연결'}
         >
           <div className="cell-3d">
             {/* Main Face */}
@@ -1052,6 +1168,23 @@ export default function App() {
         </nav>
 
         <div className="flex items-center gap-4 text-white">
+          <button
+            id="btn-links-toggle"
+            onClick={() => {
+              setShowLinks((prev) => {
+                triggerNotification(prev ? 'LINK BEAMS HIDDEN' : 'LINK BEAMS VISIBLE');
+                return !prev;
+              });
+            }}
+            className={`p-2 rounded border transition-all cursor-pointer ${
+              showLinks
+                ? 'text-white bg-white/10 border-[#333333]'
+                : 'border-[#333333] text-zinc-500 hover:text-white'
+            }`}
+            title={`연결선 ${showLinks ? '숨기기' : '보이기'} (${links.length}개)`}
+          >
+            <Share2 className="w-4.5 h-4.5" />
+          </button>
           <button
             id="btn-camera-lock"
             onClick={toggleCameraLock}
@@ -1522,6 +1655,64 @@ export default function App() {
           {cameraMode !== 'PLAN' && cameraMode !== 'SECTION' && renderWallCells('top')}
           {renderWallCells('left')}
           {renderWallCells('right')}
+
+          {/* MIND-MAP LINK BEAMS — segmented so the interior camera only
+              culls the piece behind your head, never the whole line */}
+          {showLinks &&
+            links.map((link) => {
+              const a = cellCenter(link.from);
+              const b = cellCenter(link.to);
+              if (!a || !b) return null;
+              const dx = b[0] - a[0];
+              const dy = b[1] - a[1];
+              const dz = b[2] - a[2];
+              const len = Math.hypot(dx, dy, dz);
+              if (len < 1) return null;
+              const pitchDeg = (Math.asin(dy / len) * 180) / Math.PI;
+              const yawDeg = (Math.atan2(-dz, dx) * 180) / Math.PI;
+              const segCount = Math.max(4, Math.ceil(len / 90));
+              const segLen = len / segCount;
+              return (
+                <div
+                  key={link.id}
+                  className="link-beam-anchor"
+                  style={{
+                    transform: `translate3d(${a[0]}px, ${a[1]}px, ${a[2]}px) rotateY(${yawDeg}deg) rotateZ(${pitchDeg}deg)`
+                  }}
+                >
+                  {Array.from({ length: segCount }, (_, s) => (
+                    <React.Fragment key={s}>
+                      <div
+                        className="link-seg"
+                        style={{
+                          left: `${segLen * s}px`,
+                          width: `${segLen + 1}px`,
+                          color: activeDim.starColor,
+                          backgroundColor: activeDim.starColor,
+                          animationDelay: `${(s / segCount) * 1.2}s`
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          removeLink(link.id);
+                        }}
+                        title={`${link.from.toUpperCase()} ⇄ ${link.to.toUpperCase()} — 우클릭: 연결 해제`}
+                      />
+                      <div
+                        className="link-seg fin"
+                        style={{
+                          left: `${segLen * s}px`,
+                          width: `${segLen + 1}px`,
+                          color: activeDim.starColor,
+                          backgroundColor: activeDim.starColor,
+                          animationDelay: `${(s / segCount) * 1.2}s`
+                        }}
+                      />
+                    </React.Fragment>
+                  ))}
+                </div>
+              );
+            })}
 
           {/* THE WORLD TREE — grown from real git data, rooted mid-room.
               From the default seat it is behind you (turn around to see it);

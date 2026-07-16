@@ -74,6 +74,49 @@ body {
   transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Mind-map link beams between cells */
+.link-beam-anchor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.link-seg {
+  position: absolute;
+  top: -1px;
+  height: 2px;
+  opacity: 0.6;
+  box-shadow: 0 0 6px currentColor;
+  pointer-events: auto;
+  cursor: pointer;
+  animation: link-pulse 2.4s ease-in-out infinite;
+}
+
+.link-seg.fin {
+  transform: rotateX(90deg);
+  pointer-events: none;
+}
+
+@keyframes link-pulse {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+/* Cell currently acting as a link-drag origin */
+.grid-cell.link-origin .cell-face {
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 18px rgba(255, 255, 255, 0.5);
+}
+
 /* STRUCTURE mode: X-ray the room so the world tree is the hero.
    Walls and terminal fade to ghosts; the tree keeps full presence. */
 .structure-xray .grid-cell {
