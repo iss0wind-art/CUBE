@@ -50,7 +50,7 @@ const menuData: MenuItem[] = [
   { title: '데이터레이어', icon: 'layers', stat1: 'VISIBLE', stat2: 'LVL_04', statusText: 'ADDITIONAL DRAFTING LAYER OVERLAYS ACTIVATED' }
 ];
 
-type CameraMode = 'COORDINATES' | 'AXIS' | 'PLAN' | 'SECTION';
+type CameraMode = 'COORDINATES' | 'ORBIT' | 'AXIS' | 'PLAN' | 'SECTION';
 
 export interface Dimension {
   id: string;
@@ -330,11 +330,11 @@ export default function App() {
   };
   
   // Perspective control via mouse wheel button drag
-  const [perspectiveRx, setPerspectiveRx] = useState<number>(-15);
-  const [perspectiveRy, setPerspectiveRy] = useState<number>(15);
+  const [perspectiveRx, setPerspectiveRx] = useState<number>(0);
+  const [perspectiveRy, setPerspectiveRy] = useState<number>(0);
   const isDraggingRef = useRef<boolean>(false);
   const startMouseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const startRotRef = useRef<{ rx: number; ry: number }>({ rx: -15, ry: 15 });
+  const startRotRef = useRef<{ rx: number; ry: number }>({ rx: 0, ry: 0 });
 
   // Generate twinkling stars for cosmic space background
   const [stars] = useState(() => {
@@ -392,15 +392,20 @@ export default function App() {
       if (!isDraggingRef.current) return;
       const dx = e.clientX - startMouseRef.current.x;
       const dy = e.clientY - startMouseRef.current.y;
-      
+
       const newRy = startRotRef.current.ry + dx * 0.35;
       const newRx = startRotRef.current.rx - dy * 0.35;
-      
-      // Keep Rx in a reasonable view boundary (-80 to 80 deg) so it doesn't clip or flip upside-down
-      const cappedRx = Math.min(Math.max(newRx, -80), 80);
-      
-      setPerspectiveRx(cappedRx);
-      setPerspectiveRy(newRy);
+
+      if (cameraMode === 'COORDINATES') {
+        // Interior head-turn: clamp so no wall plane crosses the eye
+        // (Chrome culls crossing planes and the room would blank out)
+        setPerspectiveRx(Math.min(Math.max(newRx, -30), 25));
+        setPerspectiveRy(Math.min(Math.max(newRy, -35), 35));
+      } else {
+        // Exterior orbit: free yaw, pitch capped so it doesn't flip upside-down
+        setPerspectiveRx(Math.min(Math.max(newRx, -80), 80));
+        setPerspectiveRy(newRy);
+      }
     };
 
     const handleMouseUp = (e: MouseEvent) => {
@@ -419,7 +424,7 @@ export default function App() {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [perspectiveRx, perspectiveRy]);
+  }, [perspectiveRx, perspectiveRy, cameraMode]);
 
   // Proximity mouse effects on inactive cells
   useEffect(() => {
@@ -473,13 +478,18 @@ export default function App() {
 
   // Handle scroll wheel zoom
   useEffect(() => {
+    const interior = cameraMode === 'COORDINATES';
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       const delta = e.deltaY * -0.65;
       setCurrentZoom((prev) => {
         const nextZoom = prev + delta;
-        // Interior camera: keep the eye between the walls (never pass through)
-        return Math.min(Math.max(nextZoom, -300), 300);
+        // Interior: step back out through the portal only (forward would push
+        // side walls across the eye plane and blank them).
+        // Exterior: the original dolly range.
+        return interior
+          ? Math.min(Math.max(nextZoom, -250), 0)
+          : Math.min(Math.max(nextZoom, 0), 400);
       });
     };
 
@@ -492,7 +502,12 @@ export default function App() {
         container.removeEventListener('wheel', handleWheel);
       }
     };
-  }, []);
+  }, [cameraMode]);
+
+  // Re-center the dolly when hopping between interior/exterior cameras
+  useEffect(() => {
+    setCurrentZoom(0);
+  }, [cameraMode]);
 
   // Active dashboard data
   const activeDim = DIMENSIONS[currentDimIndex];
@@ -573,12 +588,15 @@ export default function App() {
     }, 1500);
   };
 
-  // Interior camera: the room pivot sits at the viewer's eye, so rotation
-  // means "looking around from inside" instead of orbiting the cube.
-  // Room walls span z:-600..+200 (local center -200); the CSS eye sits at
-  // z:+1200 (perspective), so translateZ(1400) puts the room center on the eye.
-  const INTERIOR_EYE_OFFSET = 1400;
-  const isInteriorMode = cameraMode === 'COORDINATES' || cameraMode === 'AXIS';
+  // Interior "cockpit" camera. Room walls span local z:-600..+200; the CSS eye
+  // sits at z:+1200 (perspective). Chrome culls any element whose plane crosses
+  // the eye plane, so a true room-center 360° camera blanks the side walls.
+  // Instead the eye stands just outside the portal wall (local z:+220, 20px
+  // behind it) — every wall stays in front of the eye and renders, while the
+  // room still fills the whole view. Head-turn is clamped so walls never cross.
+  const INTERIOR_EYE_OFFSET = 980;                        // local→global z shift
+  const INTERIOR_EYE_LOCAL_Z = 1200 - INTERIOR_EYE_OFFSET; // pivot for look-around
+  const isInteriorMode = cameraMode === 'COORDINATES';
 
   // Determine the rotation styling of the Room container based on Camera Mode and Scroll Zoom
   const getRoomTransform = () => {
@@ -595,6 +613,11 @@ export default function App() {
     switch (cameraMode) {
       case 'COORDINATES':
         // Look around from inside; angle controlled by middle-click drag
+        rx = perspectiveRx;
+        ry = perspectiveRy;
+        break;
+      case 'ORBIT':
+        // Omniscient exterior view: orbit around the cube (the original camera)
         rx = perspectiveRx;
         ry = perspectiveRy;
         break;
@@ -784,6 +807,21 @@ export default function App() {
               location_searching
             </span>
             <span className="font-sans uppercase tracking-[2px] text-[8px] font-bold">COORDS</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setCameraMode('ORBIT');
+              triggerNotification('OMNISCIENT ORBIT VIEW ENGAGED');
+            }}
+            className={`flex flex-col items-center gap-1.5 group cursor-pointer transition-all ${
+              cameraMode === 'ORBIT' ? 'text-white font-black scale-105' : 'text-zinc-500 hover:text-white'
+            }`}
+          >
+            <span className="material-symbols-outlined text-xl">
+              orbit
+            </span>
+            <span className="font-sans uppercase tracking-[2px] text-[8px] font-bold">ORBIT</span>
           </button>
 
           <button
@@ -1159,8 +1197,8 @@ export default function App() {
           id="cube-room"
           style={{
             transform: getRoomTransform(),
-            // Pivot at the room's own center (local z:-200) = the viewer's eye
-            transformOrigin: isInteriorMode ? '50% 50% -200px' : '50% 50%'
+            // Pivot at the viewer's eye so rotation = turning your head
+            transformOrigin: isInteriorMode ? `50% 50% ${INTERIOR_EYE_LOCAL_Z}px` : '50% 50%'
           }}
         >
           {/* FLOOR WALL */}
@@ -1187,8 +1225,13 @@ export default function App() {
             {renderWallCells('right')}
           </div>
 
-          {/* CENTRAL WIREFRAME BUILDING MASS */}
-          <div className="building-container floating-mass" id="building-mass">
+          {/* CENTRAL WIREFRAME BUILDING MASS (future World Tree) —
+              hidden in the interior cockpit view where it blocks the terminal */}
+          <div
+            className="building-container floating-mass"
+            id="building-mass"
+            style={{ display: isInteriorMode ? 'none' : undefined }}
+          >
             {/* Level 1: Ceiling Massive Foundation */}
             <div
               className="building-level"
@@ -1368,28 +1411,34 @@ export default function App() {
               borderColor: isGrayscale ? undefined : `${activeDim.starColor}40`
             }}
           >
-            {/* Main Terminal Viewport */}
+            {/* Main Terminal Viewport: a monitor mounted at the wall's center,
+                sized to stay fully visible from the interior cockpit camera */}
             <div
-              className="relative z-30 w-full h-full p-10 pb-14 flex flex-col"
+              className="relative z-30 w-full h-full flex items-center justify-center"
               id="dashboard-content"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex justify-between items-center mb-4 shrink-0">
-                <div className="flex items-center gap-3">
-                  <Terminal className="w-4 h-4" style={{ color: activeDim.starColor }} />
-                  <span className="font-headline font-black tracking-[3px] text-sm text-white uppercase">
-                    {mainSessionId}
-                  </span>
+              <div
+                className="w-[640px] h-[560px] flex flex-col bg-[#0c0c0c]/95 shadow-2xl"
+                style={{ border: `1px solid ${activeDim.starColor}40`, boxShadow: `0 0 40px ${activeDim.starColor}15` }}
+              >
+                <div className="flex justify-between items-center px-4 py-2.5 border-b border-[#333333] shrink-0">
+                  <div className="flex items-center gap-3">
+                    <Terminal className="w-4 h-4" style={{ color: activeDim.starColor }} />
+                    <span className="font-headline font-black tracking-[3px] text-sm text-white uppercase">
+                      {mainSessionId}
+                    </span>
+                    <span className="font-mono text-[9px] text-zinc-500 tracking-widest uppercase">
+                      POWERSHELL // MAIN_VIEWPORT
+                    </span>
+                  </div>
                   <span className="font-mono text-[9px] text-zinc-500 tracking-widest uppercase">
-                    POWERSHELL // MAIN_VIEWPORT
+                    SESSIONS: {liveSessions.length}
                   </span>
                 </div>
-                <span className="font-mono text-[9px] text-zinc-500 tracking-widest uppercase">
-                  SESSIONS: {liveSessions.length}
-                </span>
-              </div>
-              <div className="flex-1 min-h-0 border border-[#333333] bg-[#0c0c0c] p-2">
-                <TerminalView sessionId={mainSessionId} accentColor={activeDim.starColor} />
+                <div className="flex-1 min-h-0 p-2">
+                  <TerminalView sessionId={mainSessionId} accentColor={activeDim.starColor} />
+                </div>
               </div>
             </div>
 
