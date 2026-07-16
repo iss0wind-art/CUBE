@@ -26,11 +26,12 @@ import {
   initAuth,
   googleSignIn,
   logout as logoutDrive,
+  juniorChat,
   listDriveFiles,
   saveDriveFile,
   downloadDriveFile,
   deleteDriveFile
-} from './lib/drive';
+} from './lib/junior'; // 피지수 주니어 v2.1 — 나스 저장소+두뇌 (원복: './lib/drive')
 import TerminalView from './components/TerminalView';
 import WorldTree, { TreeBranch, TreeProject } from './components/WorldTree';
 import { termClient, portalClient } from './lib/termClient';
@@ -133,7 +134,7 @@ export default function App() {
   const [currentDimIndex, setCurrentDimIndex] = useState<number>(0);
   const [isWarping, setIsWarping] = useState<boolean>(false);
 
-  // Google Drive state
+  // 피지수 주니어 v2.1 금고 상태 (구 Google Drive 자리 — 나스 저장소로 대체)
   const [driveOpen, setDriveOpen] = useState<boolean>(false);
   const [user, setUser] = useState<any>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -141,6 +142,12 @@ export default function App() {
   const [isLoadingFiles, setIsLoadingFiles] = useState<boolean>(false);
   const [saveFilename, setSaveFilename] = useState<string>('architect_revision_1');
   const [isSaving, setIsSaving] = useState<boolean>(false);
+
+  // 집사(피지수 주니어) 대화 — 저장고와 같은 우주의 두뇌 (카파시 위키)
+  const [vaultTab, setVaultTab] = useState<'files' | 'butler'>('files');
+  const [chatLog, setChatLog] = useState<{ role: 'user' | 'butler'; text: string }[]>([]);
+  const [chatInput, setChatInput] = useState<string>('');
+  const [chatBusy, setChatBusy] = useState<boolean>(false);
 
   // Terminal session state: every wall cell can host a PTY session.
   const [cellSessions, setCellSessions] = useState<Record<string, string>>({});
@@ -364,6 +371,23 @@ export default function App() {
     } catch (err) {
       console.error(err);
       triggerNotification('ERROR DISMOUNTING SESSION');
+    }
+  };
+
+  const handleButlerSend = async () => {
+    const msg = chatInput.trim();
+    if (!msg || !token || chatBusy) return;
+    setChatLog((prev) => [...prev, { role: 'user', text: msg }]);
+    setChatInput('');
+    setChatBusy(true);
+    try {
+      const res = await juniorChat(token, msg);
+      setChatLog((prev) => [...prev, { role: 'butler', text: res.reply }]);
+    } catch (err) {
+      console.error(err);
+      setChatLog((prev) => [...prev, { role: 'butler', text: '집사와 연결이 잠시 끊겼어요. 잠시 후 다시 시도해 주세요.' }]);
+    } finally {
+      setChatBusy(false);
     }
   };
 
@@ -1534,7 +1558,7 @@ export default function App() {
             <div className="flex justify-between items-center mb-5 pb-2.5 border-b border-[#333333]">
               <h3 className="font-headline font-bold text-xs uppercase tracking-[2px] text-white flex items-center gap-2">
                 <Cloud className="w-4 h-4 text-sky-400" />
-                <span>CLOUD STORAGE VAULT</span>
+                <span>PHYSIS JUNIOR VAULT</span>
               </h3>
               <button onClick={() => setDriveOpen(false)} className="text-zinc-400 hover:text-white cursor-pointer">
                 <span className="material-symbols-outlined text-lg">close</span>
@@ -1545,21 +1569,15 @@ export default function App() {
               {!user ? (
                 <div className="space-y-4">
                   <div className="text-zinc-400 leading-relaxed text-[10px] uppercase tracking-wider bg-zinc-900/50 p-3 border border-zinc-800/60">
-                    Connect your secure Google workspace to save, version-control, and load your custom architectural drafts and blueprint coordinate states across machines.
+                    Enter your own universe — 나스의 피지수 주니어에 큐브 상태를 저장하고, 기억하는 집사와 대화합니다. 구글 로그인·설정 없이 버튼 하나로 시작해요.
                   </div>
-                  
-                  {/* GSI style button */}
-                  <button 
+
+                  <button
                     onClick={handleDriveSignIn}
                     className="w-full flex items-center justify-center gap-3 bg-white text-black font-semibold py-2.5 px-4 rounded hover:bg-zinc-200 transition-all shadow-lg text-[10px] uppercase tracking-widest cursor-pointer"
                   >
-                    <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-4 h-4">
-                      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-                      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-                      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-                      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-                    </svg>
-                    <span>Connect Google Drive</span>
+                    <Cloud className="w-4 h-4 text-sky-600" />
+                    <span>Enter My Universe</span>
                   </button>
                 </div>
               ) : (
@@ -1579,7 +1597,7 @@ export default function App() {
                         <span className="block text-zinc-500 text-[8px] truncate leading-tight">{user.email}</span>
                       </div>
                     </div>
-                    <button 
+                    <button
                       onClick={handleDriveLogout}
                       className="p-1.5 border border-zinc-800 hover:border-red-900 hover:bg-red-950/20 text-zinc-400 hover:text-red-400 rounded cursor-pointer transition-colors"
                       title="Disconnect account"
@@ -1588,6 +1606,70 @@ export default function App() {
                     </button>
                   </div>
 
+                  {/* 탭: 금고(파일) / 집사(대화) */}
+                  <div className="flex gap-1 border-b border-zinc-800">
+                    {([['files', '🗄️ 금고'], ['butler', '🛰️ 집사']] as const).map(([key, label]) => (
+                      <button
+                        key={key}
+                        onClick={() => setVaultTab(key)}
+                        className={`px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest border-b-2 -mb-px transition-all cursor-pointer ${
+                          vaultTab === key ? 'border-sky-400 text-white' : 'border-transparent text-zinc-500 hover:text-white'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {vaultTab === 'butler' && (
+                    <div className="space-y-2">
+                      <div className="h-[240px] overflow-y-auto space-y-2 bg-zinc-950/60 border border-zinc-800 p-2.5 rounded">
+                        {chatLog.length === 0 ? (
+                          <p className="text-zinc-600 text-[9px] text-center py-16 uppercase tracking-wider leading-relaxed">
+                            집사에게 말을 걸어보세요.<br />대화는 기억되어 위키가 됩니다.
+                          </p>
+                        ) : (
+                          chatLog.map((m, i) => (
+                            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                              <span className={`inline-block max-w-[85%] px-2.5 py-1.5 rounded text-[10px] leading-relaxed ${
+                                m.role === 'user' ? 'bg-sky-600/80 text-white' : 'bg-zinc-800 text-zinc-200'
+                              }`}>
+                                {m.text}
+                              </span>
+                            </div>
+                          ))
+                        )}
+                        {chatBusy && (
+                          <div className="flex justify-start">
+                            <span className="inline-block px-2.5 py-1.5 rounded text-[10px] bg-zinc-800 text-zinc-500 animate-pulse">
+                              집사가 생각 중…
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={chatInput}
+                          onChange={(e) => setChatInput(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleButlerSend(); }}
+                          placeholder="집사에게 말하기…"
+                          disabled={chatBusy}
+                          className="flex-1 bg-zinc-950 border border-zinc-800 px-2.5 py-1.5 text-white text-[10px] rounded focus:outline-none focus:border-zinc-500"
+                        />
+                        <button
+                          onClick={handleButlerSend}
+                          disabled={chatBusy || !chatInput.trim()}
+                          className="px-3 bg-sky-500 hover:bg-sky-400 text-black font-bold uppercase tracking-widest text-[9px] rounded cursor-pointer transition-all disabled:opacity-40"
+                        >
+                          전송
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {vaultTab === 'files' && (
+                  <>
                   {/* Save Draft */}
                   <div className="space-y-2 border-t border-zinc-800 pt-3">
                     <span className="text-zinc-400 block uppercase tracking-wider text-[9px] font-bold">COMMIT SYSTEM SCHEMATIC</span>
@@ -1672,6 +1754,8 @@ export default function App() {
                       </div>
                     )}
                   </div>
+                  </>
+                  )}
                 </div>
               )}
             </div>
