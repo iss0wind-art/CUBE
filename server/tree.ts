@@ -5,24 +5,65 @@ import express from 'express';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
+import fs from 'fs';
 
 const run = promisify(execFile);
 const PORT = Number(process.env.CUBE_TREE_PORT || 3002);
-const PROJECT_ROOTS = (process.env.CUBE_PROJECTS || 'D:/Git/CUBE').split(';').filter(Boolean);
+const ENV_ROOTS = (process.env.CUBE_PROJECTS || 'D:/Git/CUBE').split(';').filter(Boolean);
+const STORE_FILE = path.join(process.cwd(), 'server', 'projects.json');
+
+const loadStoredRoots = (): string[] => {
+  try {
+    return JSON.parse(fs.readFileSync(STORE_FILE, 'utf8'));
+  } catch {
+    return [];
+  }
+};
+
+let storedRoots: string[] = loadStoredRoots();
+
+const allRoots = (): string[] => Array.from(new Set([...ENV_ROOTS, ...storedRoots]));
 
 const app = express();
-app.use((_req, res, next) => {
+app.use(express.json());
+app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
   next();
 });
 
 const git = async (root: string, args: string[]): Promise<string> =>
   (await run('git', ['-C', root, ...args])).stdout.trim();
 
+// Register a new project root (plant a tree). Must be a git repository.
+app.post('/api/projects', async (req, res) => {
+  const projectPath = String(req.body?.path || '').trim().replace(/\\/g, '/');
+  if (!projectPath) {
+    res.status(400).json({ error: 'path is required' });
+    return;
+  }
+  try {
+    await git(projectPath, ['rev-parse', '--is-inside-work-tree']);
+  } catch {
+    res.status(400).json({ error: 'not a git repository', path: projectPath });
+    return;
+  }
+  if (!allRoots().includes(projectPath)) {
+    storedRoots = [...storedRoots, projectPath];
+    fs.writeFileSync(STORE_FILE, JSON.stringify(storedRoots, null, 2));
+  }
+  res.json({ ok: true, roots: allRoots() });
+});
+
 app.get('/api/tree', async (_req, res) => {
   try {
     const projects = [];
-    for (const root of PROJECT_ROOTS) {
+    for (const root of allRoots()) {
       const current = await git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
 
       const wtRaw = await git(root, ['worktree', 'list', '--porcelain']);
@@ -68,5 +109,5 @@ app.get('/api/tree', async (_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`[cube-tree] world-tree API on http://localhost:${PORT} (roots: ${PROJECT_ROOTS.join(', ')})`);
+  console.log(`[cube-tree] world-tree API on http://localhost:${PORT} (roots: ${allRoots().join(', ')})`);
 });

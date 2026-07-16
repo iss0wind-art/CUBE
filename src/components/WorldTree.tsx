@@ -22,6 +22,7 @@ export interface TreeProject {
 interface WorldTreeProps {
   accentColor: string;
   risen: boolean;
+  refreshNonce?: number;
   onBranchClick: (project: TreeProject, branch: TreeBranch) => void;
 }
 
@@ -29,7 +30,18 @@ const API_URL = `http://${window.location.hostname}:3002/api/tree`;
 const FLOOR_Z = 400; // building-container local z of the floor plane
 const GOLDEN_ANGLE = 137.508;
 
-export default function WorldTree({ accentColor, risen, onBranchClick }: WorldTreeProps) {
+// Forest layout: where each registered project's tree stands on the floor
+// (container-local x, y; local y maps to room depth, negative = rearward).
+const FOREST_SPOTS: Array<[number, number]> = [
+  [0, -60],
+  [-230, 100],
+  [230, 100],
+  [-230, -240],
+  [230, -240],
+  [0, 260]
+];
+
+export default function WorldTree({ accentColor, risen, refreshNonce = 0, onBranchClick }: WorldTreeProps) {
   const [projects, setProjects] = useState<TreeProject[]>([]);
 
   useEffect(() => {
@@ -49,17 +61,23 @@ export default function WorldTree({ accentColor, risen, onBranchClick }: WorldTr
       alive = false;
       clearInterval(timer);
     };
-  }, []);
+  }, [refreshNonce]);
 
   return (
     <>
-      {projects.map((project) => {
+      {projects.map((project, pIndex) => {
         const totalCommits = project.branches.reduce((sum, b) => sum + b.commits, 0);
         const trunkHeight = Math.min(340, 120 + Math.log2(totalCommits + 2) * 30);
         const count = project.branches.length;
+        const [spotX, spotY] = FOREST_SPOTS[pIndex % FOREST_SPOTS.length];
 
         return (
-          <div key={project.path} className={`world-tree ${risen ? 'is-grown' : ''}`}>
+          <div
+            key={project.path}
+            className="world-tree"
+            style={{ transform: `translate3d(${spotX}px, ${spotY}px, 0)` }}
+          >
+            <div className={`tree-grow ${risen ? 'is-grown' : ''}`}>
             {/* Trunk: two crossed vertical ribbons */}
             {[0, 90].map((rz) => (
               <div
@@ -132,6 +150,7 @@ export default function WorldTree({ accentColor, risen, onBranchClick }: WorldTr
                 </div>
               );
             })}
+            </div>
           </div>
         );
       })}

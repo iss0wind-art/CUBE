@@ -4,10 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n web,pty,tree -c blue,green,yellow \"npm run dev:client\" \"npm run dev:server\" \"npm run dev:tree\"",
+    "dev": "concurrently -k -n web,pty,tree,portal -c blue,green,yellow,magenta \"npm run dev:client\" \"npm run dev:server\" \"npm run dev:tree\" \"npm run dev:portal\"",
     "dev:client": "vite --port=3000 --host=0.0.0.0",
     "dev:server": "tsx server/index.ts",
     "dev:tree": "tsx server/tree.ts",
+    "dev:portal": "tsx server/portal.ts",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",

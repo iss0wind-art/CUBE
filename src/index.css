@@ -383,8 +383,18 @@ body {
   opacity: 1;
 }
 
-/* World Tree (real git data) */
+/* World Tree (real git data). .world-tree places the tree on its forest
+   spot; the inner .tree-grow carries the sprout/grow animation. */
 .world-tree {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+}
+
+.tree-grow {
   position: absolute;
   left: 0;
   top: 0;
@@ -395,7 +405,7 @@ body {
   transform: scaleZ(0.02);
 }
 
-.world-tree.is-grown {
+.tree-grow.is-grown {
   transform: scaleZ(1);
 }
 

@@ -33,7 +33,7 @@ import {
 } from './lib/drive';
 import TerminalView from './components/TerminalView';
 import WorldTree, { TreeBranch, TreeProject } from './components/WorldTree';
-import { termClient } from './lib/termClient';
+import { termClient, portalClient } from './lib/termClient';
 
 interface MenuItem {
   title: string;
@@ -188,6 +188,46 @@ export default function App() {
     localStorage.setItem('cube-links', JSON.stringify(links));
   }, [links]);
 
+  // Portal: destination panel + known SSH hosts (~/.ssh/config)
+  const [portalOpen, setPortalOpen] = useState<boolean>(false);
+  const [sshProfiles, setSshProfiles] = useState<string[]>([]);
+  const [remoteHostInput, setRemoteHostInput] = useState<string>('');
+
+  // World tree forest: register new project roots (STRUCTURE mode UI)
+  const [newProjectPath, setNewProjectPath] = useState<string>('');
+  const [treeRefreshNonce, setTreeRefreshNonce] = useState<number>(0);
+
+  const plantProject = async () => {
+    const projectPath = newProjectPath.trim();
+    if (!projectPath) return;
+    try {
+      const res = await fetch(`http://${window.location.hostname}:3002/api/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: projectPath })
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setNewProjectPath('');
+        setTreeRefreshNonce((n) => n + 1);
+        triggerNotification(`NEW TREE PLANTED: [${projectPath.toUpperCase()}]`);
+      } else {
+        triggerNotification(`PLANTING FAILED: ${data.error === 'not a git repository' ? 'GIT 저장소가 아닙니다' : data.error}`);
+      }
+    } catch {
+      triggerNotification('TREE API OFFLINE — RESTART DEV SERVER');
+    }
+  };
+
+  useEffect(() => {
+    fetch(`http://${window.location.hostname}:3003/profiles`)
+      .then((res) => res.json())
+      .then((data) => Array.isArray(data.hosts) && setSshProfiles(data.hosts))
+      .catch(() => {
+        // portal server not up — manual host input still works once it is
+      });
+  }, []);
+
   // Camera lock: freeze rotation/zoom while working, snap to face the screen.
   const [isCameraLocked, setIsCameraLocked] = useState<boolean>(false);
 
@@ -200,14 +240,22 @@ export default function App() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Connect to the PTY server, boot the MAIN terminal, track live sessions
+  // Connect to the PTY + portal servers, boot MAIN, track live sessions.
+  // Snapshot merges are source-scoped so one server's list never wipes
+  // the other's sessions.
   useEffect(() => {
     termClient.connect();
     termClient.create('MAIN');
 
-    const off = termClient.on((msg) => {
+    const makeHandler = (source: 'local' | 'portal') => (msg: Parameters<Parameters<typeof termClient.on>[0]>[0]) => {
       if (msg.type === 'sessions' && msg.sessions) {
-        setLiveSessions(msg.sessions.map((s) => s.id));
+        const ids = msg.sessions.map((s) => s.id);
+        setLiveSessions((prev) => {
+          const kept = prev.filter((id) =>
+            source === 'local' ? id.startsWith('SSH_') : !id.startsWith('SSH_')
+          );
+          return [...kept, ...ids];
+        });
       }
       if (msg.type === 'created' && msg.id) {
         setLiveSessions((prev) => (prev.includes(msg.id!) ? prev : [...prev, msg.id!]));
@@ -224,8 +272,14 @@ export default function App() {
         setFocusedSession((prev) => (prev === msg.id ? 'MAIN' : prev));
         triggerNotification(`TERMINAL SESSION [${msg.id}] TERMINATED`);
       }
-    });
-    return off;
+    };
+
+    const offLocal = termClient.on(makeHandler('local'));
+    const offPortal = portalClient.on(makeHandler('portal'));
+    return () => {
+      offLocal();
+      offPortal();
+    };
   }, []);
 
   // Initialize auth state listener
@@ -599,6 +653,7 @@ export default function App() {
   // Which wall cell hosts a session (CORE = the default, cell-less MAIN)
   const locationOf = (sessionId: string): string => {
     if (sessionId.startsWith('TREE_')) return 'WORLDTREE';
+    if (sessionId.startsWith('SSH_')) return 'PORTAL';
     const key = Object.keys(cellSessions).find((k) => cellSessions[k] === sessionId);
     return key ? key.toUpperCase() : 'CORE';
   };
@@ -853,9 +908,17 @@ export default function App() {
     };
   }, [draggingMenu, menuCells, cellSessions]);
 
+  // Portal surface click opens the destination panel
   const handleBackWallClick = () => {
     if (isWarping || isSplitting) return;
+    setPortalOpen((prev) => !prev);
+    if (settingsOpen) setSettingsOpen(false);
+    if (driveOpen) setDriveOpen(false);
+  };
 
+  // Shared warp sequence: doors split, stars streak, then arrive
+  const runWarpTo = (arrive: () => void) => {
+    if (isWarping || isSplitting) return;
     setIsSplitting(true);
     triggerNotification('OPENING COGNITIVE PORTAL TO THE DEEP COSMOS...');
 
@@ -864,15 +927,36 @@ export default function App() {
       triggerNotification('WARPING IN PROGRESS: SPEED INTEGRATION FLOW ENGAGED...');
 
       setTimeout(() => {
-        setCurrentDimIndex((prev) => {
-          const nextIndex = (prev + 1) % DIMENSIONS.length;
-          setSystemStatus(DIMENSIONS[nextIndex].systemStatus);
-          return nextIndex;
-        });
+        arrive();
         setIsWarping(false);
         setIsSplitting(false);
       }, 2000);
     }, 1200);
+  };
+
+  // Warp to a local dimension (color theme)
+  const warpToDimension = (index: number) => {
+    setPortalOpen(false);
+    runWarpTo(() => {
+      setCurrentDimIndex(index);
+      setSystemStatus(DIMENSIONS[index].systemStatus);
+    });
+  };
+
+  // Warp to a remote host: SSH terminal opens through the portal and docks
+  const connectRemote = (host: string) => {
+    const trimmed = host.trim();
+    if (!trimmed) return;
+    setPortalOpen(false);
+    runWarpTo(() => {
+      const safeName = trimmed.replace(/[^A-Za-z0-9_.@-]/g, '_').toUpperCase();
+      const sessionId = `SSH_${safeName}`;
+      portalClient.create(sessionId, undefined, trimmed);
+      dockSession(sessionId);
+      setCurrentDimIndex(1); // remote dimension = neon cyan
+      setSystemStatus(`REMOTE_${safeName}_LINKED`);
+      triggerNotification(`DIMENSIONAL SHIFT COMPLETE — REMOTE HOST [${trimmed}]`);
+    });
   };
 
   const triggerNotification = (text: string) => {
@@ -1549,6 +1633,125 @@ export default function App() {
         </div>
       )}
 
+      {/* STRUCTURE mode: plant a new project tree */}
+      {cameraMode === 'PLAN' && (
+        <div className="fixed bottom-16 left-28 z-50 w-80 bg-[#161616]/95 border border-[#333333] p-4 backdrop-blur-md shadow-2xl">
+          <span className="text-zinc-400 block mb-2 uppercase tracking-wider text-[9px] font-bold">
+            WORLD TREE FOREST — 새 나무 심기 (git 저장소 경로)
+          </span>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newProjectPath}
+              onChange={(e) => setNewProjectPath(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') plantProject();
+              }}
+              placeholder="D:\Git\my-project"
+              className="flex-1 bg-zinc-950 border border-zinc-800 px-2.5 py-1.5 text-white font-mono text-[10px] rounded focus:outline-none focus:border-emerald-700"
+            />
+            <button
+              onClick={plantProject}
+              disabled={!newProjectPath.trim()}
+              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase tracking-widest text-[9px] rounded cursor-pointer transition-all disabled:opacity-40"
+            >
+              PLANT
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Portal Destination Panel */}
+      {portalOpen && (
+        <div className="fixed top-24 right-8 w-80 bg-[#161616]/95 border border-[#333333] p-6 z-50 backdrop-blur-md animate-in fade-in slide-in-from-top-4 duration-250 shadow-2xl">
+          <div className="flex justify-between items-center mb-5 pb-2.5 border-b border-[#333333]">
+            <h3 className="font-headline font-bold text-xs uppercase tracking-[2px] text-white">
+              PORTAL: SELECT DIMENSION
+            </h3>
+            <button onClick={() => setPortalOpen(false)} className="text-zinc-400 hover:text-white cursor-pointer">
+              <span className="material-symbols-outlined text-lg">close</span>
+            </button>
+          </div>
+
+          <div className="space-y-4 font-sans text-xs">
+            <div>
+              <span className="text-zinc-400 block mb-2 uppercase tracking-wider text-[9px]">
+                LOCAL DIMENSIONS (색 테마)
+              </span>
+              <div className="space-y-1.5">
+                {DIMENSIONS.map((dim, idx) => (
+                  <button
+                    key={dim.id}
+                    onClick={() => warpToDimension(idx)}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 border text-left transition-all cursor-pointer ${
+                      idx === currentDimIndex
+                        ? 'border-white/60 bg-white/10'
+                        : 'border-zinc-800 hover:border-zinc-500 hover:bg-zinc-900'
+                    }`}
+                  >
+                    <span
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: dim.starColor, boxShadow: `0 0 6px ${dim.starColor}` }}
+                    />
+                    <span className="font-mono text-[9px] tracking-widest text-zinc-300 uppercase truncate">
+                      {dim.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="border-t border-zinc-800 pt-3">
+              <span className="text-zinc-400 block mb-2 uppercase tracking-wider text-[9px]">
+                REMOTE DIMENSIONS (SSH)
+              </span>
+              {sshProfiles.length > 0 && (
+                <div className="space-y-1.5 mb-2 max-h-[140px] overflow-y-auto pr-1">
+                  {sshProfiles.map((host) => (
+                    <button
+                      key={host}
+                      onClick={() => connectRemote(host)}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 border border-zinc-800 hover:border-cyan-700 hover:bg-cyan-950/20 text-left transition-all cursor-pointer"
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-cyan-400" style={{ boxShadow: '0 0 6px #22d3ee' }} />
+                      <span className="font-mono text-[9px] tracking-widest text-zinc-300 truncate">{host}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={remoteHostInput}
+                  onChange={(e) => setRemoteHostInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      connectRemote(remoteHostInput);
+                      setRemoteHostInput('');
+                    }
+                  }}
+                  placeholder="user@host"
+                  className="flex-1 bg-zinc-950 border border-zinc-800 px-2.5 py-1.5 text-white font-mono text-[10px] rounded focus:outline-none focus:border-cyan-700"
+                />
+                <button
+                  onClick={() => {
+                    connectRemote(remoteHostInput);
+                    setRemoteHostInput('');
+                  }}
+                  disabled={!remoteHostInput.trim()}
+                  className="px-3 bg-white hover:bg-zinc-200 text-black font-bold uppercase tracking-widest text-[9px] rounded cursor-pointer transition-all disabled:opacity-40"
+                >
+                  WARP
+                </button>
+              </div>
+              <p className="text-zinc-500 text-[8px] tracking-wider mt-2 leading-relaxed uppercase">
+                비밀번호/호스트키 확인은 열린 터미널 안에서 그대로 진행됩니다
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* UI Overlay for Live Metadata & HUD */}
       <div className="ui-overlay p-8 flex flex-col justify-between">
         
@@ -1721,6 +1924,7 @@ export default function App() {
             <WorldTree
               accentColor={activeDim.starColor}
               risen={isRisen}
+              refreshNonce={treeRefreshNonce}
               onBranchClick={openBranchTerminal}
             />
           </div>

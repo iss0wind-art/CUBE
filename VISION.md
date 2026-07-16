@@ -55,11 +55,16 @@
       색: 현재 브랜치=액센트/워크트리=초록/일반=회색), 30초 폴링 성장,
       가지 클릭 → 그 워크트리 경로의 터미널 도킹. API는 별도 프로세스(:3002,
       server/tree.ts, CUBE_PROJECTS 환경변수로 프로젝트 등록)
-- [ ] Phase 2.5: 세계수 숨김/벽 도킹, 다중 프로젝트 등록 UI, 커밋 그래프 가지치기
+- [x] Phase 2.5: 다중 프로젝트 숲 — STRUCTURE 모드에서 git 경로 입력 →
+      나무 심기(POST /api/projects, server/projects.json 영속), 바닥에
+      최대 6그루 배치. 숨김 = 헤더 격자 버튼(isRisen 토글)
 - [x] Phase 3: 마인드맵 연결선 — 셀→셀 드래그로 3D 빔 연결 (분할 세그먼트로
       내부 시점 컬링 회피), 헤더 토글로 표시/숨김, 빔 우클릭 = 해제,
       localStorage + Drive 저장 스키마에 영속
-- [ ] Phase 4: 포털 — SSH 프로필 → 원격 차원 워프
+- [x] Phase 4: 포털 — 포털 클릭 → 목적지 패널(로컬 4차원 + ~/.ssh/config
+      프로필 + user@host 직접 입력) → 워프 연출 → SSH 터미널이 메인에 도킹.
+      원격 세션은 전용 포털 서버(:3003, server/portal.ts)가 ssh.exe를 PTY로
+      실행 — 비밀번호/호스트키 프롬프트가 터미널에 그대로 흐름
 - [ ] Phase 5: 모델링 바닥 + 모바일 PWA
 
 ## 아키텍처

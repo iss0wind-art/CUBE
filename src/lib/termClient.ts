@@ -19,7 +19,6 @@ export interface ServerMessage {
 
 type Listener = (msg: ServerMessage) => void;
 
-const SERVER_URL = `ws://${window.location.hostname}:3001`;
 const MAX_BUFFER_CHARS = 200_000;
 
 class TermClient {
@@ -29,10 +28,12 @@ class TermClient {
   private buffers = new Map<string, string>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
+  constructor(private url: string) {}
+
   connect() {
     if (this.ws && this.ws.readyState !== WebSocket.CLOSED) return;
 
-    this.ws = new WebSocket(SERVER_URL);
+    this.ws = new WebSocket(this.url);
 
     this.ws.onopen = () => {
       const queued = [...this.pendingMessages];
@@ -81,8 +82,8 @@ class TermClient {
     }
   }
 
-  create(id: string, cwd?: string) {
-    this.send({ type: 'create', id, cwd });
+  create(id: string, cwd?: string, host?: string) {
+    this.send({ type: 'create', id, cwd, host });
   }
 
   input(id: string, data: string) {
@@ -107,4 +108,12 @@ class TermClient {
   }
 }
 
-export const termClient = new TermClient();
+// Local PTY server (PowerShell sessions)
+export const termClient = new TermClient(`ws://${window.location.hostname}:3001`);
+
+// Portal server (remote SSH sessions — the dimensional gateway)
+export const portalClient = new TermClient(`ws://${window.location.hostname}:3003`);
+
+// SSH_ sessions live behind the portal; everything else is local
+export const clientFor = (sessionId: string): TermClient =>
+  sessionId.startsWith('SSH_') ? portalClient : termClient;
