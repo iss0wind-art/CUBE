@@ -21,7 +21,7 @@ export default defineConfig(() => {
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       // Allow access through Cloudflare tunnel hostnames (vite blocks unknown Hosts by default)
-      allowedHosts: ['.trycloudflare.com'],
+      allowedHosts: ['.trycloudflare.com', '.iss0wind.kr'],
       // Same-origin proxy: a single tunnel to :3000 reaches every backend.
       // WS servers ignore the request path, so no rewrite needed for /ws/*.
       proxy: {

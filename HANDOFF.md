@@ -26,12 +26,13 @@ npm run dev   # 4개 프로세스 동시 기동
 백엔드(3001~3003)는 vite 프록시로 same-origin 경로에 매핑된다
 (`/ws/pty`, `/ws/portal`, `/api/*`, `/portal/*`) — 단일 호스트(터널)로 전부 통한다.
 
-원격 접속(Cloudflare 퀵 터널):
+원격 접속: **https://cube.iss0wind.kr** (전용 네임드 터널 `cube`, 6fb92162)
 ```bash
-cloudflared --config <빈 파일> tunnel --url http://<LAN IP>:3000 --no-autoupdate
-# --config 빈 파일 필수: ~/.cloudflared/config.yml(네임드 터널)이 자동 로드되면 퀵 터널이 깨진다
-# localhost(127.0.0.1:3000)는 VS Code 포트 포워더가 점유할 수 있으니 LAN IP 사용
-# 경고: 이 URL = 이 PC의 PowerShell 원격 셸. 절대 공유 금지, 사용 후 즉시 종료
+cloudflared --config C:\Users\USER\.cloudflared\cube-config.yml tunnel run cube
+# 기존 ~/.cloudflared/config.yml(구 터널, boq/dream→3001 규칙 포함)은 절대 실행하지 마라 —
+# 3001은 이제 CUBE PTY라 PowerShell이 공개 주소로 노출된다. cube 전용 config만 쓴다.
+# origin이 localhost가 아니라 172.25.0.1인 이유: 127.0.0.1:3000은 VS Code 포워더가 점유
+# 경고: 이 URL = 이 PC의 PowerShell 원격 셸. 공유 금지. Cloudflare Access 인증 추가 권장
 ```
 
 | 포트 | 프로세스 | 파일 | 역할 |
