@@ -26,7 +26,7 @@ interface WorldTreeProps {
   onBranchClick: (project: TreeProject, branch: TreeBranch) => void;
 }
 
-const API_URL = `http://${window.location.hostname}:3002/api/tree`;
+const API_URL = '/api/tree';
 const FLOOR_Z = 400; // building-container local z of the floor plane
 const GOLDEN_ANGLE = 137.508;
 

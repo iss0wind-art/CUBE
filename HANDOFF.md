@@ -23,6 +23,17 @@ npm install
 npm run dev   # 4개 프로세스 동시 기동
 ```
 
+백엔드(3001~3003)는 vite 프록시로 same-origin 경로에 매핑된다
+(`/ws/pty`, `/ws/portal`, `/api/*`, `/portal/*`) — 단일 호스트(터널)로 전부 통한다.
+
+원격 접속(Cloudflare 퀵 터널):
+```bash
+cloudflared --config <빈 파일> tunnel --url http://<LAN IP>:3000 --no-autoupdate
+# --config 빈 파일 필수: ~/.cloudflared/config.yml(네임드 터널)이 자동 로드되면 퀵 터널이 깨진다
+# localhost(127.0.0.1:3000)는 VS Code 포트 포워더가 점유할 수 있으니 LAN IP 사용
+# 경고: 이 URL = 이 PC의 PowerShell 원격 셸. 절대 공유 금지, 사용 후 즉시 종료
+```
+
 | 포트 | 프로세스 | 파일 | 역할 |
 |---|---|---|---|
 | 3000 | web | vite | 프론트 (strictPort — 점유 시 실패) |

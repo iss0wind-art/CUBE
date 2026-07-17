@@ -20,6 +20,19 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      // Allow access through Cloudflare tunnel hostnames (vite blocks unknown Hosts by default)
+      allowedHosts: ['.trycloudflare.com'],
+      // Same-origin proxy: a single tunnel to :3000 reaches every backend.
+      // WS servers ignore the request path, so no rewrite needed for /ws/*.
+      proxy: {
+        '/ws/pty': {target: 'ws://localhost:3001', ws: true},
+        '/ws/portal': {target: 'ws://localhost:3003', ws: true},
+        '/api': {target: 'http://localhost:3002'},
+        '/portal': {
+          target: 'http://localhost:3003',
+          rewrite: (p) => p.replace(/^\/portal/, ''),
+        },
+      },
     },
   };
 });

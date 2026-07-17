@@ -201,7 +201,7 @@ export default function App() {
     const projectPath = newProjectPath.trim();
     if (!projectPath) return;
     try {
-      const res = await fetch(`http://${window.location.hostname}:3002/api/projects`, {
+      const res = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: projectPath })
@@ -220,7 +220,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetch(`http://${window.location.hostname}:3003/profiles`)
+    fetch('/portal/profiles')
       .then((res) => res.json())
       .then((data) => Array.isArray(data.hosts) && setSshProfiles(data.hosts))
       .catch(() => {

@@ -108,11 +108,15 @@ class TermClient {
   }
 }
 
+// Same-origin via the vite proxy so the app works through a single
+// tunnel hostname (Cloudflare) as well as plain localhost.
+const WS_BASE = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
+
 // Local PTY server (PowerShell sessions)
-export const termClient = new TermClient(`ws://${window.location.hostname}:3001`);
+export const termClient = new TermClient(`${WS_BASE}/ws/pty`);
 
 // Portal server (remote SSH sessions — the dimensional gateway)
-export const portalClient = new TermClient(`ws://${window.location.hostname}:3003`);
+export const portalClient = new TermClient(`${WS_BASE}/ws/portal`);
 
 // SSH_ sessions live behind the portal; everything else is local
 export const clientFor = (sessionId: string): TermClient =>
