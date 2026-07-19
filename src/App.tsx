@@ -1331,6 +1331,16 @@ export default function App() {
           <span className="font-headline font-black tracking-[4px] text-lg text-white uppercase">
             ARCHITECT_OS
           </span>
+          {/* 2D 큐브(펼친 화면)로 가기 — 기본 새 창. 나중엔 완전히 합쳐질 자리. */}
+          <a
+            href="https://cube.iss0wind.kr"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="2D 큐브(펼친 화면)로 가기 — 새 창"
+            className="ml-3 font-headline tracking-[2px] uppercase text-[11px] font-bold px-3 py-1.5 rounded border border-[#333333] text-zinc-400 hover:text-white hover:border-white transition-all"
+          >
+            🧊 2D로 가기 ↗
+          </a>
         </div>
         
         <nav className="hidden md:flex items-center gap-10">
