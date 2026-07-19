@@ -97,7 +97,8 @@ cloudflared --config C:\Users\USER\.cloudflared\cube-config.yml tunnel run cube
 - `src/App.tsx` 배선 4곳: interchange import / `preservedRef`(useRef) / 저장 시 `toInterchange`로 감쌈 /
   불러오기 시 `fromInterchange`로 언랩(구형 순정 3D 파일도 하위호환).
 - 검증: 변환기 round-trip 14/14(node --experimental-strip-types). 2D가 만든 파일을 3D가 열고 다시
-  저장해도 `ext.orca2d`·코어 바이트 동일 확인. **단, 이 앱의 최종 컴파일(npm run dev)은 사무실 PC에서 확인 필요.**
+  저장해도 `ext.orca2d`·코어 바이트 동일 확인. **나스에서 `tsc --noEmit`(lint) + `vite build` 모두 통과(EXIT 0, 1693 모듈)** — 컴파일 검증 완료.
+  프론트엔드 저장/불러오기는 PTY 백엔드와 무관해 나스 빌드로 충분히 검증됨. 남은 유일한 사람 손 = Google Drive 로그인 후 실제 저장→불러오기 왕복 테스트(아무 브라우저에서나 가능).
 - 규격서 정본: 나스 2D 레포 `docs/CUBE_INTERCHANGE_FORMAT_v1.md`.
 - **방부장 머지 절차**: 이 브랜치 `feat/interchange-format`를 `feat/phase1-terminals`에 머지 →
   `npm run dev`로 빌드 확인 → Drive에 저장/불러오기 왕복 테스트.
