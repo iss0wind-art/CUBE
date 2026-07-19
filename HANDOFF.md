@@ -85,3 +85,19 @@ cloudflared --config C:\Users\USER\.cloudflared\cube-config.yml tunnel run cube
 2. 협업 챕터: 별=타인의 큐브, 프레즌스 서버, 포털 간 연결선
 3. XR 렌더러 (three.js + xterm 캔버스 텍스처, VISION의 전략 참조)
 4. Gemini 연동 (원래 AI Studio 앱이었으니 AI 어시스턴트 셀?)
+
+## 공용 왕복 형식 (Interchange v1) — 2D 오르카 큐브 ↔ 3D 왕복 (2026-07-19)
+
+**목적**: 나스 2D 오르카 큐브(cube.iss0wind.kr)와 이 3D를 **한 파일로 왕복**. 오토캐드↔스케치업처럼
+공용 뼈대 + 각 앱 전용 블록(상대는 보존만) → 무손실.
+
+- `src/lib/interchange.ts` 추가: `toInterchange(arch, name, preserved)` / `fromInterchange(file)`.
+  - 봉투 = 공용코어(acts·molecules·atoms·links) + `ext.architect3d`(이 앱 소유) + `ext.orca2d`(2D 로직층).
+  - **무손실 철칙**: 3D가 모르는 코어·`ext.orca2d`는 `preservedRef`에 담아뒀다 저장 때 그대로 되돌림.
+- `src/App.tsx` 배선 4곳: interchange import / `preservedRef`(useRef) / 저장 시 `toInterchange`로 감쌈 /
+  불러오기 시 `fromInterchange`로 언랩(구형 순정 3D 파일도 하위호환).
+- 검증: 변환기 round-trip 14/14(node --experimental-strip-types). 2D가 만든 파일을 3D가 열고 다시
+  저장해도 `ext.orca2d`·코어 바이트 동일 확인. **단, 이 앱의 최종 컴파일(npm run dev)은 사무실 PC에서 확인 필요.**
+- 규격서 정본: 나스 2D 레포 `docs/CUBE_INTERCHANGE_FORMAT_v1.md`.
+- **방부장 머지 절차**: 이 브랜치 `feat/interchange-format`를 `feat/phase1-terminals`에 머지 →
+  `npm run dev`로 빌드 확인 → Drive에 저장/불러오기 왕복 테스트.

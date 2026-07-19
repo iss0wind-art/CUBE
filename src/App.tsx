@@ -31,6 +31,7 @@ import {
   downloadDriveFile,
   deleteDriveFile
 } from './lib/drive';
+import { toInterchange, fromInterchange, emptyPreserved, Preserved } from './lib/interchange';
 import TerminalView from './components/TerminalView';
 import WorldTree, { TreeBranch, TreeProject } from './components/WorldTree';
 import { termClient, portalClient } from './lib/termClient';
@@ -183,6 +184,8 @@ export default function App() {
   const [linkDragFrom, setLinkDragFrom] = useState<string | null>(null);
   const linkDragRef = useRef<{ from: string; startX: number; startY: number; active: boolean } | null>(null);
   const suppressClickRef = useRef<boolean>(false);
+  // 왕복 무손실: 2D 로직층(코어+ext.orca2d)을 열 때 담아뒀다 저장 때 그대로 되돌린다
+  const preservedRef = useRef<Preserved>(emptyPreserved());
 
   useEffect(() => {
     localStorage.setItem('cube-links', JSON.stringify(links));
@@ -393,7 +396,9 @@ export default function App() {
     };
 
     try {
-      await saveDriveFile(token, saveFilename, schemaData);
+      // 공용 왕복 형식으로 감싸 저장 (2D 로직층은 preservedRef로 무손실 보존)
+      const envelope = toInterchange(schemaData as any, saveFilename, preservedRef.current);
+      await saveDriveFile(token, saveFilename, envelope);
       triggerNotification('STATE RECORD WRITTEN SUCCESSFULLY');
       setSaveFilename('');
       loadDriveFilesList(token);
@@ -411,11 +416,15 @@ export default function App() {
     triggerNotification(`DE-SERIALIZING SCHEMATIC SOURCE [${fileName.toUpperCase()}]...`);
 
     try {
-      const content = await downloadDriveFile(token, fileId);
-      if (content.appIdentifier !== 'Architect_OS_Schematic') {
+      const raw = await downloadDriveFile(token, fileId);
+      // 공용 왕복 형식 언랩. 2D 로직층은 preservedRef에 무손실 보존.
+      const { arch, preserved } = fromInterchange(raw);
+      preservedRef.current = preserved;
+      if (!arch) {
         triggerNotification('ERROR: INVALID FILE STATE SIGNATURE');
         return;
       }
+      const content: any = arch;
 
       if (typeof content.currentDimIndex === 'number') {
         setCurrentDimIndex(content.currentDimIndex);
