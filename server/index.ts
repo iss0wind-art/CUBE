@@ -5,6 +5,9 @@ import * as pty from '@lydell/node-pty';
 import os from 'os';
 
 const PORT = Number(process.env.CUBE_SERVER_PORT || 3001);
+// 루프백만 듣는다 — 이 머신은 공인 IP가 NIC에 직결(enp4s0)이고 여기엔 인증이 없다.
+// 바깥에서 오는 길은 serve.py(:3009) 관문의 /ws/pty 중계 하나뿐이며 그쪽은 127.0.0.1로 붙는다.
+const HOST = process.env.CUBE_SERVER_HOST || '127.0.0.1';
 const SHELL = process.env.CUBE_SHELL || 'powershell.exe';
 
 interface Session {
@@ -98,6 +101,6 @@ wss.on('connection', (ws) => {
   ws.on('close', () => sockets.delete(ws));
 });
 
-server.listen(PORT, () => {
-  console.log(`[cube-server] PTY server ready on http://localhost:${PORT} (shell: ${SHELL})`);
+server.listen(PORT, HOST, () => {
+  console.log(`[cube-server] PTY server ready on http://${HOST}:${PORT} (shell: ${SHELL})`);
 });

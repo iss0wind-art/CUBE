@@ -247,6 +247,14 @@ class H(SimpleHTTPRequestHandler):
         self.send_response(404)
         self.end_headers()
 
+    def do_HEAD(self):
+        # 관문은 GET만 막고 HEAD는 그냥 통과했다 — `curl -I` 로 200이 새던 구멍(G-2, 2026-09-03).
+        if not self._gated():
+            self.send_response(401)
+            self.send_header("Content-Length", "0")
+            return self.end_headers()
+        return super().do_HEAD()
+
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
         # 관문이 먼저다 — 중계도 정적도 표가 있어야 지나간다.
