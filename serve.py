@@ -24,6 +24,7 @@
 import hashlib
 import hmac
 import os
+import pathlib
 import secrets
 import socket
 import threading
@@ -37,6 +38,9 @@ PORT = 3009
 
 PIN_FILE = os.environ.get("CUBE_PIN_FILE", "/home/nas01/.secrets/cube_pin")
 SECRET_FILE = os.environ.get("CUBE3D_GATE_SECRET", "/home/nas01/.secrets/cube3d_gate_secret")
+# [2026-09-07 본영-지시-0003 공사5] pty 서버(:3021)는 인증이 없었다. 앞단이 이미 관문을
+# 통과시킨 요청에만 이 토큰을 실어 준다 — pty 는 토큰 없는 연결을 거절한다.
+PTY_TOKEN_FILE = os.environ.get("CUBE3D_PTY_TOKEN_FILE", "/home/nas01/.secrets/cube3d_pty_token")
 COOKIE = "cube3d_gate"
 GATE_DAYS = 30
 MAX_FAILS = 5
@@ -59,6 +63,22 @@ def _pin():
     except OSError:
         print(f"[gate] 핀 파일이 없습니다: {PIN_FILE} — 아무도 못 들어옵니다", flush=True)
         return ""
+
+
+def _pty_token():
+    """pty 중계용 공유 토큰. 없으면 만든다(0600). 앞단과 pty 가 같은 파일을 본다."""
+    try:
+        t = pathlib.Path(PTY_TOKEN_FILE).read_text(encoding="utf-8").strip()
+        if t:
+            return t
+    except OSError:
+        pass
+    t = secrets.token_urlsafe(32)
+    p = pathlib.Path(PTY_TOKEN_FILE)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(t, encoding="utf-8")
+    p.chmod(0o600)
+    return t
 
 
 def _secret():
@@ -148,7 +168,22 @@ class H(SimpleHTTPRequestHandler):
         return False
 
     def _client(self):
-        return (self.headers.get("X-Forwarded-For") or self.client_address[0]).split(",")[0].strip()
+        """잠금 카운터의 열쇠. **위조 가능한 값을 쓰면 잠금이 무의미해진다.**
+
+        [2026-09-07 본영-지시-0003 공사6] 종전엔 X-Forwarded-For 를 무조건 믿었다 —
+        헤더만 바꿔 가며 5실패/15분 잠금을 무한히 우회할 수 있었다.
+        형 저장소 CUBE(server.py:_client_ip)가 이미 고친 결함이라 그 구현을 그대로 옮긴다.
+
+        cloudflared 는 이 머신 안에서 localhost:3009 로 붙으므로 터널 경유 요청은
+        TCP 상대가 루프백이다. **그때만** CF-Connecting-IP 를 믿는다.
+        LAN·테일스케일 직결에선 클라이언트가 헤더를 마음대로 넣을 수 있으므로 실제 TCP 주소를 쓴다.
+        """
+        peer = (self.client_address[0] or "?").strip()
+        if peer in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
+            fwd = (self.headers.get("CF-Connecting-IP") or "").strip()
+            if fwd:
+                return fwd[:45]
+        return peer[:45] or "?"
 
     def _deny(self):
         body = GATE_HTML.encode()
@@ -205,7 +240,10 @@ class H(SimpleHTTPRequestHandler):
             self.end_headers()
             return
         try:
-            head = [f"GET {self.path} HTTP/1.1", f"Host: {host}:{port}"]
+            # 관문을 통과한 요청임을 상류에 증명한다(공사5). 클라이언트가 보낸 같은
+            # 이름의 헤더는 여기서 만든 값으로 덮인다 — 위조가 통과하지 않는다.
+            head = [f"GET {self.path} HTTP/1.1", f"Host: {host}:{port}",
+                    f"X-Cube3d-Token: {_pty_token()}"]
             for k in ("Connection", "Upgrade", "Sec-WebSocket-Key", "Sec-WebSocket-Version",
                       "Sec-WebSocket-Protocol", "Sec-WebSocket-Extensions"):
                 v = self.headers.get(k)
