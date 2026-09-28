@@ -1,0 +1,8 @@
+# CUBE-3d — 비밀 유출 검사 (2026-09-28, 상황판 A-08)
+# gitleaks 하나만 둔다 — 파일을 스스로 고치는 훅은 병행 세션 커밋과 엉킨다.
+# ⚠ `pre-commit run --all-files` 는 스테이징분만 본다 — 이력 전수는 ~/CLAUDE.md §6.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.4
+    hooks:
+      - id: gitleaks
